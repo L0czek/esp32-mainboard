@@ -33,7 +33,7 @@ rtt-target = { version = "0.6.1", features = ["defmt"] }
 critical-section = "1.2.0"
 embassy-executor = { version = "0.7.0", features = [
   "defmt",
-  "task-arena-size-20480",
+  "nightly"
 ] }
 embassy-time = { version = "0.4.0", features = ["defmt"] }
 esp-hal-embassy = { version = "0.9.0", features = ["defmt", "esp32c6"] }
@@ -64,7 +64,10 @@ pcf857x = "0.5.0"
 embedded-hal = "1.0.0"
 embedded-hal-bus = { version = "0.3.0", features = ["alloc"] }
 thiserror = { version = "2.0.12", default-features = false }
-
+picoserve = { version = "0.16.0", features = ["embassy", "alloc"] }
+once_cell = { version = "1.21.3", default-features = false, features = ["alloc", "critical-section"] }
+spin = "0.10.0"
+rand_core = "0.9.3"
 
 [profile.dev]
 # Rust debug is too slow.

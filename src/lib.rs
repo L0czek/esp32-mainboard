@@ -1,6 +1,8 @@
+#![feature(impl_trait_in_assoc_type)]
 #![no_std]
 
-mod board;
-mod power;
+pub mod board;
+pub mod html;
+pub mod power;
 
 pub use board::Board;
