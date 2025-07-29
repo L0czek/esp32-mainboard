@@ -1054,6 +1054,7 @@ dependencies = [
  "defmt 1.0.1",
  "embassy-executor",
  "embassy-net",
+ "embassy-sync 0.7.0",
  "embassy-time",
  "embedded-hal 1.0.0",
  "embedded-hal-bus",
@@ -1072,7 +1073,6 @@ dependencies = [
  "rtt-target",
  "serde",
  "smoltcp",
- "spin",
  "static_cell",
  "thiserror",
 ]
@@ -1438,15 +1438,6 @@ dependencies = [
  "defmt 0.3.100",
  "heapless",
  "managed",
-]
-
-[[package]]
-name = "spin"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
-dependencies = [
- "lock_api",
 ]
 
 [[package]]

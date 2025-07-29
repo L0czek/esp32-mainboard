@@ -7,6 +7,7 @@
     holding buffers for the duration of a data transfer."
 )]
 
+use mainboard::simple_output::initialize_simple_output;
 use mainboard::{create_board, server, wifi, Board};
 
 use defmt::info;
@@ -58,14 +59,21 @@ async fn main(spawner: Spawner) {
         wifi::initialize_wifi(spawner, esp_wifi_ctrl, peripherals.WIFI, &mut rng).await;
     info!("WiFi initialized!");
 
+    // Initialize simple output
+    initialize_simple_output(board.D0, board.D1);
+
     // Start the web server
     info!("Starting web server...");
-    server::run_server(spawner, wifi_resources).await;
+    server::run_server(spawner, &wifi_resources).await;
     info!("Web server started!");
 
     // Main loop
     loop {
-        info!("Server running...");
+        info!(
+            "Server running... AP IP: {:?}, STA IP: {:?}",
+            wifi_resources.ap_stack.config_v4().map(|c| c.address),
+            wifi_resources.sta_stack.config_v4().map(|c| c.address)
+        );
         Timer::after(Duration::from_secs(10)).await;
     }
 }

@@ -2,14 +2,17 @@ use defmt::info;
 use embassy_time::Duration;
 use picoserve::{
     make_static,
-    response::{File, IntoResponse},
+    response::{ErrorWithStatusCode, File, IntoResponse},
     routing::{self, get, parse_path_segment, PathRouter},
     AppBuilder, AppRouter, Router,
 };
 use serde::Serialize;
+extern crate alloc;
+use crate::{server::alloc::string::ToString, simple_output::set_state};
+use alloc::string::String;
 
-use crate::html::INDEX_HTML;
 use crate::wifi::WifiResources;
+use crate::{html::INDEX_HTML, simple_output::OutputID};
 
 // Define the pool size for web tasks
 const WEB_TASK_POOL_SIZE: usize = 8;
@@ -39,20 +42,37 @@ impl AppBuilder for AppProps {
     }
 }
 
+#[derive(Debug, thiserror::Error, ErrorWithStatusCode)]
+#[status_code(BAD_REQUEST)]
+enum BadRequest {
+    #[error("Bad: {0}")]
+    Bad(String),
+}
+
 // Handler for digital I/O API
 async fn digital_handler((id, value): (u8, u8)) -> impl IntoResponse {
     info!("Setting digital pin {} to {}", id, value);
+    let pin: OutputID = match id {
+        0 => OutputID::Output1,
+        1 => OutputID::Output2,
+        _ => return Err(BadRequest::Bad("Invalid pin".to_string())),
+    };
 
+    let value: bool = match value {
+        0 | 1 => value != 0,
+        _ => return Err(BadRequest::Bad("Invalid value".to_string())),
+    };
+    set_state(pin, value).await;
     // Here you'd implement actual pin control
     // For now, just return a success message
-    picoserve::response::Json(APIResponse { ok: true })
+    Ok(picoserve::response::Json(APIResponse { ok: true }))
 }
 
 /// Initialize and run the web server
 ///
 /// This function sets up the picoserve server using the provided WiFi resources
 /// and spawns tasks to handle web requests.
-pub async fn run_server(spawner: embassy_executor::Spawner, wifi_resources: WifiResources) {
+pub async fn run_server(spawner: embassy_executor::Spawner, wifi_resources: &WifiResources) {
     let WifiResources {
         ap_stack,
         sta_stack,
@@ -77,13 +97,13 @@ pub async fn run_server(spawner: embassy_executor::Spawner, wifi_resources: Wifi
 
     // Start web tasks for AP interface
     for id in 0..WEB_TASK_POOL_SIZE {
-        spawner.spawn(web_task(id, ap_stack, app, config)).unwrap();
+        spawner.spawn(web_task(id, *ap_stack, app, config)).unwrap();
     }
 
     // Start web tasks for STA interface
     for id in 0..WEB_TASK_POOL_SIZE {
         spawner
-            .spawn(web_task(id + WEB_TASK_POOL_SIZE, sta_stack, app, config))
+            .spawn(web_task(id + WEB_TASK_POOL_SIZE, *sta_stack, app, config))
             .unwrap();
     }
 
