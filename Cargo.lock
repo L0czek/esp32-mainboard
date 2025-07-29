@@ -1070,6 +1070,7 @@ dependencies = [
  "picoserve",
  "rand_core 0.9.3",
  "rtt-target",
+ "serde",
  "smoltcp",
  "spin",
  "static_cell",

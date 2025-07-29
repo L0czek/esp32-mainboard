@@ -5,5 +5,7 @@ pub mod board;
 pub mod config;
 pub mod html;
 pub mod power;
+pub mod wifi;
+pub mod server;
 
 pub use board::Board;
