@@ -2,6 +2,7 @@
 #![no_std]
 
 pub mod board;
+pub mod config;
 pub mod html;
 pub mod power;
 
