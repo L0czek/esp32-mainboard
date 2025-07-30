@@ -1,12 +1,10 @@
-use bq24296m::WatchdogTimer;
+use bq24296m::{ChargeStatus, WatchdogTimer};
 use defmt::{error, info};
 use embassy_futures::select::{select, Either};
 use embassy_time::Timer;
 
 use crate::{
-    board::{recv_power_controller_command, send_power_controller_response},
-    power::{PowerController, PowerControllerConfig, PowerControllerError, PowerControllerIO, PowerControllerMode, PowerControllerStats},
-    I2cType, Result,
+    board::POWER_CONTROL, error::AnyError, power::{PowerController, PowerControllerConfig, PowerControllerError, PowerControllerIO, PowerControllerMode, PowerControllerStats}, I2cType
 };
 
 pub enum PowerRequest {
@@ -33,6 +31,19 @@ pub async fn handle_power_controller(
     }
 }
 
+fn handle_power_controller_interrupt(pctl: &mut PowerController<I2cType>) -> Result<(), PowerControllerError<I2cType>> {
+    let stats = pctl.read_stats()?;
+
+    //TODO: add charging interrupt handling
+
+    match stats.charger_status.get_charge_status() {
+        ChargeStatus::ChargeDone => pctl.switch_mode(PowerControllerMode::Passive)?,
+        _ => {}
+    }
+
+    Ok(())
+}
+
 fn handle_power_controller_command(pctl: &mut PowerController<I2cType>, command: PowerRequest) -> PowerResponse {
     match command {
         PowerRequest::SwitchMode(mode) => match pctl.switch_mode(mode) {
@@ -52,8 +63,12 @@ fn handle_power_controller_command(pctl: &mut PowerController<I2cType>, command:
             Err(e) => PowerResponse::Err(e)
         }
         PowerRequest::CheckInterrupt => {
-            // TODO: Add logic to auto switch
-            PowerResponse::Ok
+            // TODO: expand this logic
+            match handle_power_controller_interrupt(pctl) {
+                Ok(()) => PowerResponse::Ok,
+                Err(e) => PowerResponse::Err(e)
+            }
+
         }
     }
 }
@@ -61,7 +76,7 @@ fn handle_power_controller_command(pctl: &mut PowerController<I2cType>, command:
 async fn handle_power_controller_impl(
     config: PowerControllerConfig,
     io: PowerControllerIO<I2cType>,
-) -> Result<()> {
+) -> Result<(), AnyError> {
     let ping_time = config.i2c_watchdog_timer;
     let mut pctl = PowerController::new(config, io)?;
 
@@ -75,16 +90,19 @@ async fn handle_power_controller_impl(
 
     loop {
         let timeout = Timer::after_secs(sleep_time);
-        let command = recv_power_controller_command();
+        let command = POWER_CONTROL.recv_request();
 
         let result = select(timeout, command).await;
 
         if let Either::Second(cmd) = result {
             let response = handle_power_controller_command(&mut pctl, cmd);
-            send_power_controller_response(response).await;
+            POWER_CONTROL.send_response(response).await;
         }
 
         pctl.reset_watchdog()?;
         info!("Charger watchdog reset");
+
+        let stats = pctl.read_stats()?;
+        stats.dump();
     }
 }

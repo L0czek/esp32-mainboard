@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod board;
+pub mod channel;
 pub mod error;
 pub mod power;
 pub mod tasks;

@@ -62,9 +62,11 @@ async fn main(spawner: Spawner) {
     let _ = spawner.spawn(handle_power_controller(power_config, power_io));
 
     let adc_config = AdcConfig::new();
+    let calibration = Default::default();
     let _ = spawner.spawn(monitor_voltages(
         peripherals.ADC1,
         adc_config,
+        calibration,
         board.BatVol,
         board.BoostVol,
     ));
