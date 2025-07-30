@@ -7,7 +7,9 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use mainboard::{create_board, Board};
+use esp_hal::analog::adc::AdcConfig;
+use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
+use mainboard::create_board;
 
 use defmt::info;
 use embassy_executor::Spawner;
@@ -15,6 +17,8 @@ use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::timer::timg::TimerGroup;
+use mainboard::power::PowerControllerIO;
+use mainboard::tasks::{handle_ext_interrupt_line, handle_power_controller, monitor_voltages};
 use panic_rtt_target as _;
 
 extern crate alloc;
@@ -40,6 +44,8 @@ async fn main(spawner: Spawner) {
 
     info!("Embassy initialized!");
 
+    init_i2c_bus(peripherals.I2C0, board.Sda, board.Scl).expect("Failed to initialize I2C bus");
+
     let rng = esp_hal::rng::Rng::new(peripherals.RNG);
     let timer1 = TimerGroup::new(peripherals.TIMG0);
     let wifi_init =
@@ -47,8 +53,25 @@ async fn main(spawner: Spawner) {
     let (mut _wifi_controller, _interfaces) = esp_wifi::wifi::new(&wifi_init, peripherals.WIFI)
         .expect("Failed to initialize WIFI controller");
 
-    // TODO: Spawn some tasks
-    let _ = spawner;
+    let power_config = Default::default();
+    let power_io = PowerControllerIO {
+        charger_i2c: acquire_i2c_bus(),
+        pcf8574_i2c: acquire_i2c_bus(),
+        boost_converter_enable: board.BoostEn,
+    };
+    let _ = spawner.spawn(handle_power_controller(power_config, power_io));
+
+    let adc_config = AdcConfig::new();
+    let calibration = Default::default();
+    let _ = spawner.spawn(monitor_voltages(
+        peripherals.ADC1,
+        adc_config,
+        calibration,
+        board.BatVol,
+        board.BoostVol,
+    ));
+
+    let _ = spawner.spawn(handle_ext_interrupt_line(board.GlobalInt));
 
     loop {
         info!("Hello world!");
