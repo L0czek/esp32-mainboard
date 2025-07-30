@@ -10,13 +10,12 @@ use serde::Serialize;
 extern crate alloc;
 use crate::{server::alloc::string::ToString, simple_output::set_state};
 use alloc::string::String;
-use alloc::format;
 
 use crate::wifi::WifiResources;
 use crate::{html::INDEX_HTML, simple_output::OutputID};
+use bq24296m;
 use mainboard::board::POWER_CONTROL;
 use mainboard::tasks::{PowerRequest, PowerResponse};
-use bq24296m;
 
 // Define the pool size for web tasks
 const WEB_TASK_POOL_SIZE: usize = 8;
@@ -44,6 +43,8 @@ struct PowerStatsResponse<'a> {
     ntc_fault_status: &'a str,
     ntc_cold_fault: bool,
     ntc_hot_fault: bool,
+    // Boost converter state
+    boost_converter_enabled: bool,
 }
 
 // App properties for the web server
@@ -64,6 +65,10 @@ impl AppBuilder for AppProps {
                 get(digital_handler),
             )
             .route("/api/power/stats", get(power_stats_handler))
+            .route(
+                ("/api/power/boost", parse_path_segment::<bool>()),
+                get(power_boost_handler),
+            )
     }
 }
 
@@ -93,7 +98,37 @@ async fn digital_handler((id, value): (u8, u8)) -> impl IntoResponse {
     Ok(picoserve::response::Json(APIResponse { ok: true }))
 }
 
-// Handler for power controller stats
+/// Handler for boost converter control
+async fn power_boost_handler(enable: bool) -> impl IntoResponse {
+    info!(
+        "Setting boost converter to: {}",
+        if enable { "enabled" } else { "disabled" }
+    );
+
+    // Send command to power controller
+    let response = match POWER_CONTROL
+        .transact(PowerRequest::EnableBoostConverter(enable))
+        .await
+    {
+        PowerResponse::Ok => {
+            info!("Boost converter set successfully");
+            APIResponse { ok: true }
+        }
+        PowerResponse::Err(_) => {
+            info!("Failed to set boost converter state");
+            return Err(BadRequest::Bad("Failed to set boost converter".to_string()));
+        }
+        _ => {
+            info!("Unexpected power controller response");
+            return Err(BadRequest::Bad(
+                "Unexpected power controller response".to_string(),
+            ));
+        }
+    };
+
+    Ok(picoserve::response::Json(response))
+}
+/// Handler for power controller stats
 async fn power_stats_handler() -> impl IntoResponse {
     info!("Getting power controller stats");
 
@@ -103,9 +138,9 @@ async fn power_stats_handler() -> impl IntoResponse {
             // Use helper functions to decode register values
             let status = &stats.charger_status;
             let faults = &stats.charger_faults;
-            
+
             info!("Power stats: retrieved successfully");
-            
+
             // Convert enum values to static string slices to avoid lifetime issues
             let vbus_status = match status.get_vbus_status() {
                 bq24296m::VbusStatus::Unknown => "Unknown",
@@ -113,28 +148,28 @@ async fn power_stats_handler() -> impl IntoResponse {
                 bq24296m::VbusStatus::AdapterPort => "Adapter Port",
                 bq24296m::VbusStatus::Otg => "OTG",
             };
-            
+
             let charge_status = match status.get_charge_status() {
                 bq24296m::ChargeStatus::NotCharging => "Not Charging",
                 bq24296m::ChargeStatus::PreCharge => "Pre-Charge",
                 bq24296m::ChargeStatus::FastCharging => "Fast Charging",
                 bq24296m::ChargeStatus::ChargeDone => "Charge Done",
             };
-            
+
             let charge_fault_status = match faults.get_charge_fault_status() {
                 bq24296m::ChargeFaultStatus::Normal => "Normal",
                 bq24296m::ChargeFaultStatus::InputFault => "Input Fault",
                 bq24296m::ChargeFaultStatus::ThermalShutdown => "Thermal Shutdown",
                 bq24296m::ChargeFaultStatus::ChargeTimerExpired => "Charge Timer Expired",
             };
-            
+
             let ntc_fault_status = match faults.get_ntc_fault_status() {
                 bq24296m::NtcFaultStatus::Normal => "Normal",
                 bq24296m::NtcFaultStatus::Cold => "Cold",
                 bq24296m::NtcFaultStatus::Hot => "Hot",
                 bq24296m::NtcFaultStatus::ColdAndHot => "Cold and Hot",
             };
-            
+
             PowerStatsResponse {
                 ok: true,
                 // Status register decoded values
@@ -152,6 +187,8 @@ async fn power_stats_handler() -> impl IntoResponse {
                 ntc_fault_status,
                 ntc_cold_fault: faults.is_ntc_cold_fault(),
                 ntc_hot_fault: faults.is_ntc_hot_fault(),
+                // Boost converter state
+                boost_converter_enabled: stats.boost_enabled,
             }
         }
         PowerResponse::Err(_) => {

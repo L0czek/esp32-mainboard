@@ -145,7 +145,17 @@
                 <span class="stats-label">VSYS Regulation Active:</span>
                 <span id="vsys-regulation" class="stats-value">Loading...</span>
             </div>
-            
+
+            <h3>Boost Converter</h3>
+            <div class="stats-row">
+                <span class="stats-label">Boost Converter Status:</span>
+                <span id="boost-status" class="stats-value">Loading...</span>
+            </div>
+            <div class="button-group">
+                <button id="boost-enable-btn" class="button" onclick="toggleBoostConverter(true)">Enable Boost</button>
+                <button id="boost-disable-btn" class="button off" onclick="toggleBoostConverter(false)">Disable Boost</button>
+            </div>
+
             <h3>Fault Status</h3>
             <div class="stats-row">
                 <span class="stats-label">Watchdog Fault:</span>
@@ -274,6 +284,11 @@
                         document.getElementById('thermal-regulation').textContent = formatBoolean(data.thermal_regulation_active);
                         document.getElementById('vsys-regulation').textContent = formatBoolean(data.vsys_regulation_active);
                         
+                        // Boost Converter Status
+                        document.getElementById('boost-status').textContent = formatBoolean(data.boost_converter_enabled);
+                        // Update boost converter button appearance based on status
+                        updateBoostButtonState(data.boost_converter_enabled);
+                        
                         // Fault Status fields
                         document.getElementById('watchdog-fault').textContent = formatBoolean(data.watchdog_fault);
                         document.getElementById('otg-fault').textContent = formatBoolean(data.otg_fault);
@@ -331,6 +346,63 @@
                     statusElement.textContent = `Error: ${error.message}`;
                     statusElement.style.backgroundColor = '#ffebee';
                 });
+        }
+        
+        // Function to toggle boost converter state
+        function toggleBoostConverter(enable) {
+            const statusElement = document.getElementById('status');
+            statusElement.style.display = 'block';
+            statusElement.textContent = `Setting boost converter to ${enable ? 'enabled' : 'disabled'}...`;
+            statusElement.style.backgroundColor = '#e8f5e9';
+            
+            fetch(`/api/power/boost/${enable}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.ok) {
+                        statusElement.textContent = `Boost converter ${enable ? 'enabled' : 'disabled'} successfully`;
+                        statusElement.style.backgroundColor = '#e8f5e9';
+                        // Update UI state immediately
+                        updateBoostButtonState(enable);
+                        // Fetch updated stats after a short delay
+                        setTimeout(() => fetchPowerStats(), 500);
+                        
+                        // Hide the status message after 2 seconds
+                        setTimeout(() => {
+                            statusElement.style.display = 'none';
+                        }, 2000);
+                    } else {
+                        throw new Error('Failed to set boost converter state');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error toggling boost converter:', error);
+                    statusElement.style.display = 'block';
+                    statusElement.textContent = `Error: ${error.message}`;
+                    statusElement.style.backgroundColor = '#ffebee';
+                });
+        }
+        
+        // Function to update the boost converter button state based on current status
+        function updateBoostButtonState(enabled) {
+            const enableBtn = document.getElementById('boost-enable-btn');
+            const disableBtn = document.getElementById('boost-disable-btn');
+            
+            if (enabled) {
+                enableBtn.style.opacity = '1';
+                enableBtn.style.fontWeight = 'bold';
+                disableBtn.style.opacity = '0.5';
+                disableBtn.style.fontWeight = 'normal';
+            } else {
+                enableBtn.style.opacity = '0.5';
+                enableBtn.style.fontWeight = 'normal';
+                disableBtn.style.opacity = '1';
+                disableBtn.style.fontWeight = 'bold';
+            }
         }
         
         // Start auto-refresh when the page loads

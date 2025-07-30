@@ -46,6 +46,7 @@ pub struct PowerControllerConfig {
 pub struct PowerControllerStats {
     pub charger_status: SystemStatusRegister,
     pub charger_faults: NewFaultRegister,
+    pub boost_enabled: bool,
 }
 
 impl PowerControllerStats {
@@ -302,6 +303,7 @@ impl<I2C: I2c> PowerController<I2C> {
         Ok(PowerControllerStats {
             charger_status: stats.SSR,
             charger_faults: stats.NFR,
+            boost_enabled: self.is_boost_converter_enabled(),
         })
     }
 
