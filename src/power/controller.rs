@@ -34,10 +34,10 @@ pub struct PowerControllerConfig {
     pub boost_voltage: u32,
     pub boost_current_limit: BoostCurrentLimit,
     pub boost_hot_threshold: BoostHotThreshold,
-    pub boost_cold_treshold_m20: bool,
+    pub boost_cold_threshold_m20: bool,
 
     pub i2c_watchdog_timer: WatchdogTimer,
-    pub thermal_regulation_treshold: ThermalRegulationThreshold,
+    pub thermal_regulation_threshold: ThermalRegulationThreshold,
     pub enable_charge_fault_int: bool,
     pub enable_battery_fault_int: bool,
 }
@@ -91,10 +91,10 @@ impl Default for PowerControllerConfig {
             boost_voltage: 4998,
             boost_current_limit: BoostCurrentLimit::mA_1000,
             boost_hot_threshold: BoostHotThreshold::Celsius65,
-            boost_cold_treshold_m20: true,
+            boost_cold_threshold_m20: true,
 
             i2c_watchdog_timer: WatchdogTimer::Seconds160,
-            thermal_regulation_treshold: ThermalRegulationThreshold::Celsius80,
+            thermal_regulation_threshold: ThermalRegulationThreshold::Celsius80,
             enable_charge_fault_int: true,
             enable_battery_fault_int: true,
         }
@@ -174,7 +174,7 @@ impl<I2C: I2c> PowerController<I2C> {
 
                 regs.CCCR
                     .set_charge_current_limit_mA(self.config.charging_current);
-                if self.config.boost_cold_treshold_m20 {
+                if self.config.boost_cold_threshold_m20 {
                     regs.CCCR.set_boost_converter_low_temp_to_m20();
                 } else {
                     regs.CCCR.set_boost_converter_low_temp_to_m10();
@@ -207,7 +207,7 @@ impl<I2C: I2c> PowerController<I2C> {
                 regs.BVTRR
                     .set_boost_hot_temperature_threshold(self.config.boost_hot_threshold);
                 regs.BVTRR
-                    .set_thermal_regulation_threshold(self.config.thermal_regulation_treshold);
+                    .set_thermal_regulation_threshold(self.config.thermal_regulation_threshold);
 
                 regs.MOCR.enable_dpdm_detection();
                 regs.MOCR.disable_timer_2x();

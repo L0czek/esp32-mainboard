@@ -120,7 +120,7 @@ pub fn init_i2c_bus(
 pub fn acquire_i2c_bus() -> AtomicDevice<'static, I2c<'static, Blocking>> {
     match I2C_BUS.get() {
         Some(bus) => AtomicDevice::new(bus),
-        None => panic!("I2C bus accessed before initalization"),
+        None => panic!("I2C bus accessed before initialization"),
     }
 }
 
