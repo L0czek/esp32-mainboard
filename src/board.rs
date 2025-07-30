@@ -1,5 +1,4 @@
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embedded_hal_bus::{i2c::AtomicDevice, util::AtomicCell};
 use esp_hal::{
     i2c::master::{ConfigError, I2c},

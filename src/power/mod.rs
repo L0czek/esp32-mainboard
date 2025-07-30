@@ -14,7 +14,7 @@ impl<I2C: I2c> Display for PowerControllerError<I2C> {
         match self {
             PowerControllerError::I2cBusError(bus_error) => write!(
                 f,
-                "Power controler error due to I2C bus malfunction: {:?}",
+                "Power Controller error due to I2C bus malfunction: {:?}",
                 bus_error
             ),
             PowerControllerError::I2CExpanderError(expander_err) => write!(
@@ -30,7 +30,7 @@ impl<I2C: I2c> Format for PowerControllerError<I2C> {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             PowerControllerError::I2cBusError(bus_error) => {
-                defmt_write!(fmt, "Power controler error due to I2C bus malfunction")
+                defmt_write!(fmt, "Power Controller error due to I2C bus malfunction")
             }
             PowerControllerError::I2CExpanderError(expander_err) => {
                 defmt_write!(fmt, "Power Controller error due to I2C expander error")

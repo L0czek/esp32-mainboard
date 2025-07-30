@@ -32,8 +32,8 @@ pub async fn monitor_voltages(
     let mut adc = Adc::new(instance, config);
 
     loop {
-        let bat_v = adc.read_oneshot(&mut adc_bat_pin).unwrap() as u32 * calibration.battery_voltage_calibration / 1000;
-        let boost_v = adc.read_oneshot(&mut adc_boost_pin).unwrap() as u32 * calibration.boost_voltage_calibration / 1000;
+        let bat_v =  nb::block!(adc.read_oneshot(&mut adc_bat_pin)).unwrap() as u32 * calibration.battery_voltage_calibration / 1000;
+        let boost_v = nb::block!(adc.read_oneshot(&mut adc_boost_pin)).unwrap() as u32 * calibration.boost_voltage_calibration / 1000;
 
         info!("Battery voltage: {}, Boost voltage: {}", bat_v, boost_v);
 
