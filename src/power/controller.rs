@@ -1,21 +1,21 @@
 use super::{PowerControllerError, Result};
+use crate::board::BoostEnPin;
 use bq24296m::{
     BatteryLowVoltageThreshold, BatteryRechargeThreshold, BoostCurrentLimit, BoostHotThreshold,
     ChargeTimer, ConfigurationRegisters, InputCurrentLimit, NewFaultRegister,
     PowerOnConfigurationRegister, StatusRegisters, SystemStatusRegister,
     ThermalRegulationThreshold, WatchdogTimer, BQ24296,
 };
+use defmt::{debug, Format};
 use embedded_hal::i2c::I2c;
 use esp_hal::gpio::*;
-use crate::board::BoostEnPin;
 use pcf857x::{OutputPin as ExpanderOutputPin, Pcf8574};
 use pcf857x::{P0, P1, P3, P4, P5, P6, P7};
-use defmt::{Format, debug};
 
 pub struct PowerControllerIO<I2C: I2c> {
     pub charger_i2c: I2C,
     pub pcf8574_i2c: I2C,
-    pub boost_converter_enable: BoostEnPin
+    pub boost_converter_enable: BoostEnPin,
 }
 
 pub struct PowerControllerConfig {
@@ -58,8 +58,14 @@ impl PowerControllerStats {
         debug!("  Charge Status: {:?}", status.get_charge_status());
         debug!("  DPM Active: {}", status.is_dpm_active());
         debug!("  Power Good: {}", status.is_power_good());
-        debug!("  Thermal Regulation Active: {}", status.is_thermal_regulation_active());
-        debug!("  VSYS Regulation Active: {}", status.is_vsys_regulation_active());
+        debug!(
+            "  Thermal Regulation Active: {}",
+            status.is_thermal_regulation_active()
+        );
+        debug!(
+            "  VSYS Regulation Active: {}",
+            status.is_vsys_regulation_active()
+        );
 
         let faults = &self.charger_faults;
         debug!("> Charger Faults:");
@@ -67,7 +73,10 @@ impl PowerControllerStats {
         debug!("    - Cold Fault: {}", faults.is_ntc_cold_fault());
         debug!("    - Hot Fault: {}", faults.is_ntc_hot_fault());
         debug!("  Battery Fault: {}", faults.is_battery_fault());
-        debug!("  Charger Fault Status: {:?}", faults.get_charge_fault_status());
+        debug!(
+            "  Charger Fault Status: {:?}",
+            faults.get_charge_fault_status()
+        );
         debug!("  OTG Fault: {}", faults.is_otg_fault());
         debug!("  Watchdog Fault: {}", faults.is_watchdog_fault());
     }

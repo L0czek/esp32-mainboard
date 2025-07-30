@@ -1,5 +1,5 @@
-use embassy_sync::channel::Channel;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 
 pub struct RequestResponseChannel<Req, Resp, const N: usize> {
     req_channel: Channel<CriticalSectionRawMutex, Req, N>,
@@ -35,4 +35,3 @@ impl<Req, Resp, const N: usize> RequestResponseChannel<Req, Resp, N> {
         self.recv_response().await
     }
 }
-

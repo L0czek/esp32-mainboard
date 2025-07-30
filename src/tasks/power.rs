@@ -4,7 +4,13 @@ use embassy_futures::select::{select, Either};
 use embassy_time::Timer;
 
 use crate::{
-    board::POWER_CONTROL, error::AnyError, power::{PowerController, PowerControllerConfig, PowerControllerError, PowerControllerIO, PowerControllerMode, PowerControllerStats}, I2cType
+    board::POWER_CONTROL,
+    error::AnyError,
+    power::{
+        PowerController, PowerControllerConfig, PowerControllerError, PowerControllerIO,
+        PowerControllerMode, PowerControllerStats,
+    },
+    I2cType,
 };
 
 pub enum PowerRequest {
@@ -17,7 +23,7 @@ pub enum PowerRequest {
 pub enum PowerResponse {
     Ok,
     Status(PowerControllerStats),
-    Err(PowerControllerError<I2cType>)
+    Err(PowerControllerError<I2cType>),
 }
 
 #[embassy_executor::task]
@@ -31,7 +37,9 @@ pub async fn handle_power_controller(
     }
 }
 
-fn handle_power_controller_interrupt(pctl: &mut PowerController<I2cType>) -> Result<(), PowerControllerError<I2cType>> {
+fn handle_power_controller_interrupt(
+    pctl: &mut PowerController<I2cType>,
+) -> Result<(), PowerControllerError<I2cType>> {
     let stats = pctl.read_stats()?;
 
     //TODO: add charging interrupt handling
@@ -44,12 +52,15 @@ fn handle_power_controller_interrupt(pctl: &mut PowerController<I2cType>) -> Res
     Ok(())
 }
 
-fn handle_power_controller_command(pctl: &mut PowerController<I2cType>, command: PowerRequest) -> PowerResponse {
+fn handle_power_controller_command(
+    pctl: &mut PowerController<I2cType>,
+    command: PowerRequest,
+) -> PowerResponse {
     match command {
         PowerRequest::SwitchMode(mode) => match pctl.switch_mode(mode) {
             Ok(()) => PowerResponse::Ok,
-            Err(e) => PowerResponse::Err(e)
-        }
+            Err(e) => PowerResponse::Err(e),
+        },
         PowerRequest::EnableBoostConverter(true) => {
             pctl.enable_boost_converter();
             PowerResponse::Ok
@@ -60,15 +71,14 @@ fn handle_power_controller_command(pctl: &mut PowerController<I2cType>, command:
         }
         PowerRequest::GetStats => match pctl.read_stats() {
             Ok(stats) => PowerResponse::Status(stats),
-            Err(e) => PowerResponse::Err(e)
-        }
+            Err(e) => PowerResponse::Err(e),
+        },
         PowerRequest::CheckInterrupt => {
             // TODO: expand this logic
             match handle_power_controller_interrupt(pctl) {
                 Ok(()) => PowerResponse::Ok,
-                Err(e) => PowerResponse::Err(e)
+                Err(e) => PowerResponse::Err(e),
             }
-
         }
     }
 }

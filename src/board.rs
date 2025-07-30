@@ -1,4 +1,3 @@
-
 use embedded_hal_bus::{i2c::AtomicDevice, util::AtomicCell};
 use esp_hal::{
     i2c::master::{ConfigError, I2c},
@@ -8,7 +7,10 @@ use esp_hal::{
 
 use once_cell::sync::OnceCell;
 
-use crate::{channel::RequestResponseChannel, tasks::{PowerRequest, PowerResponse}};
+use crate::{
+    channel::RequestResponseChannel,
+    tasks::{PowerRequest, PowerResponse},
+};
 
 pub type GlobalIntPin = GPIO7<'static>;
 pub type BoostEnPin = GPIO15<'static>;
@@ -103,11 +105,7 @@ macro_rules! create_board {
 
 static I2C_BUS: OnceCell<AtomicCell<I2c<'static, Blocking>>> = OnceCell::new();
 
-pub fn init_i2c_bus(
-    i2c0: I2C0<'static>,
-    sda: SdaPin,
-    scl: SclPin,
-) -> Result<(), ConfigError> {
+pub fn init_i2c_bus(i2c0: I2C0<'static>, sda: SdaPin, scl: SclPin) -> Result<(), ConfigError> {
     let bus = I2c::new(i2c0, Default::default())?
         .with_sda(sda)
         .with_scl(scl);
@@ -124,4 +122,5 @@ pub fn acquire_i2c_bus() -> AtomicDevice<'static, I2c<'static, Blocking>> {
     }
 }
 
-pub static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> = RequestResponseChannel::with_static_channels();
+pub static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> =
+    RequestResponseChannel::with_static_channels();
