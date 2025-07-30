@@ -10,9 +10,13 @@ use serde::Serialize;
 extern crate alloc;
 use crate::{server::alloc::string::ToString, simple_output::set_state};
 use alloc::string::String;
+use alloc::format;
 
 use crate::wifi::WifiResources;
 use crate::{html::INDEX_HTML, simple_output::OutputID};
+use mainboard::board::POWER_CONTROL;
+use mainboard::tasks::{PowerRequest, PowerResponse};
+use bq24296m;
 
 // Define the pool size for web tasks
 const WEB_TASK_POOL_SIZE: usize = 8;
@@ -20,6 +24,26 @@ const WEB_TASK_POOL_SIZE: usize = 8;
 #[derive(Serialize)]
 struct APIResponse {
     ok: bool,
+}
+
+#[derive(Serialize)]
+struct PowerStatsResponse<'a> {
+    ok: bool,
+    // Status register decoded values
+    vbus_status: &'a str,
+    charge_status: &'a str,
+    dpm_active: bool,
+    power_good: bool,
+    thermal_regulation_active: bool,
+    vsys_regulation_active: bool,
+    // Fault register decoded values
+    watchdog_fault: bool,
+    otg_fault: bool,
+    charge_fault_status: &'a str,
+    battery_fault: bool,
+    ntc_fault_status: &'a str,
+    ntc_cold_fault: bool,
+    ntc_hot_fault: bool,
 }
 
 // App properties for the web server
@@ -39,6 +63,7 @@ impl AppBuilder for AppProps {
                 ),
                 get(digital_handler),
             )
+            .route("/api/power/stats", get(power_stats_handler))
     }
 }
 
@@ -66,6 +91,82 @@ async fn digital_handler((id, value): (u8, u8)) -> impl IntoResponse {
     // Here you'd implement actual pin control
     // For now, just return a success message
     Ok(picoserve::response::Json(APIResponse { ok: true }))
+}
+
+// Handler for power controller stats
+async fn power_stats_handler() -> impl IntoResponse {
+    info!("Getting power controller stats");
+
+    // Request power controller stats
+    let response = match POWER_CONTROL.transact(PowerRequest::GetStats).await {
+        PowerResponse::Status(stats) => {
+            // Use helper functions to decode register values
+            let status = &stats.charger_status;
+            let faults = &stats.charger_faults;
+            
+            info!("Power stats: retrieved successfully");
+            
+            // Convert enum values to static string slices to avoid lifetime issues
+            let vbus_status = match status.get_vbus_status() {
+                bq24296m::VbusStatus::Unknown => "Unknown",
+                bq24296m::VbusStatus::UsbHost => "USB Host",
+                bq24296m::VbusStatus::AdapterPort => "Adapter Port",
+                bq24296m::VbusStatus::Otg => "OTG",
+            };
+            
+            let charge_status = match status.get_charge_status() {
+                bq24296m::ChargeStatus::NotCharging => "Not Charging",
+                bq24296m::ChargeStatus::PreCharge => "Pre-Charge",
+                bq24296m::ChargeStatus::FastCharging => "Fast Charging",
+                bq24296m::ChargeStatus::ChargeDone => "Charge Done",
+            };
+            
+            let charge_fault_status = match faults.get_charge_fault_status() {
+                bq24296m::ChargeFaultStatus::Normal => "Normal",
+                bq24296m::ChargeFaultStatus::InputFault => "Input Fault",
+                bq24296m::ChargeFaultStatus::ThermalShutdown => "Thermal Shutdown",
+                bq24296m::ChargeFaultStatus::ChargeTimerExpired => "Charge Timer Expired",
+            };
+            
+            let ntc_fault_status = match faults.get_ntc_fault_status() {
+                bq24296m::NtcFaultStatus::Normal => "Normal",
+                bq24296m::NtcFaultStatus::Cold => "Cold",
+                bq24296m::NtcFaultStatus::Hot => "Hot",
+                bq24296m::NtcFaultStatus::ColdAndHot => "Cold and Hot",
+            };
+            
+            PowerStatsResponse {
+                ok: true,
+                // Status register decoded values
+                vbus_status,
+                charge_status,
+                dpm_active: status.is_dpm_active(),
+                power_good: status.is_power_good(),
+                thermal_regulation_active: status.is_thermal_regulation_active(),
+                vsys_regulation_active: status.is_vsys_regulation_active(),
+                // Fault register decoded values
+                watchdog_fault: faults.is_watchdog_fault(),
+                otg_fault: faults.is_otg_fault(),
+                charge_fault_status,
+                battery_fault: faults.is_battery_fault(),
+                ntc_fault_status,
+                ntc_cold_fault: faults.is_ntc_cold_fault(),
+                ntc_hot_fault: faults.is_ntc_hot_fault(),
+            }
+        }
+        PowerResponse::Err(_) => {
+            info!("Failed to get power controller stats");
+            return Err(BadRequest::Bad("Failed to get power stats".to_string()));
+        }
+        _ => {
+            info!("Unexpected power controller response");
+            return Err(BadRequest::Bad(
+                "Unexpected power controller response".to_string(),
+            ));
+        }
+    };
+
+    Ok(picoserve::response::Json(response))
 }
 
 /// Initialize and run the web server

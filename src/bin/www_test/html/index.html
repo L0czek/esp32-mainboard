@@ -62,6 +62,44 @@
             background-color: #e8f5e9;
             display: none;
         }
+        .stats-panel {
+            background-color: #f1f8ff;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #e1e4e8;
+            padding-bottom: 8px;
+        }
+        .stats-label {
+            font-weight: bold;
+        }
+        .stats-value {
+            font-family: monospace;
+        }
+        .refresh-button {
+            background-color: #0366d6;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        .refresh-button:hover {
+            background-color: #0258ba;
+        }
+        .refresh-info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 8px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -79,9 +117,200 @@
         </div>
     </div>
     
+    <div class="control-panel">
+        <h2>Power Controller Stats</h2>
+        <div id="power-stats" class="stats-panel">
+            <h3>Charger Status</h3>
+            <div class="stats-row">
+                <span class="stats-label">VBUS Status:</span>
+                <span id="vbus-status" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Charging Status:</span>
+                <span id="charge-status" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">DPM Active:</span>
+                <span id="dpm-active" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Power Good:</span>
+                <span id="power-good" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Thermal Regulation Active:</span>
+                <span id="thermal-regulation" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">VSYS Regulation Active:</span>
+                <span id="vsys-regulation" class="stats-value">Loading...</span>
+            </div>
+            
+            <h3>Fault Status</h3>
+            <div class="stats-row">
+                <span class="stats-label">Watchdog Fault:</span>
+                <span id="watchdog-fault" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">OTG Fault:</span>
+                <span id="otg-fault" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Charge Fault Status:</span>
+                <span id="charge-fault-status" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Battery Fault:</span>
+                <span id="battery-fault" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">NTC Fault Status:</span>
+                <span id="ntc-fault-status" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">NTC Cold Fault:</span>
+                <span id="ntc-cold-fault" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">NTC Hot Fault:</span>
+                <span id="ntc-hot-fault" class="stats-value">Loading...</span>
+            </div>
+            
+            <div class="stats-row">
+                <span class="stats-label">Last Updated:</span>
+                <span id="last-updated" class="stats-value">Never</span>
+            </div>
+            <button class="refresh-button" onclick="fetchPowerStats()">Refresh Now</button>
+            <div class="refresh-info">Auto-refreshes every 5 seconds</div>
+        </div>
+    </div>
+    
     <div id="status" class="status"></div>
 
     <script>
+        // Variables for tracking auto-refresh
+        let refreshIntervalId = null;
+        const REFRESH_INTERVAL = 5000; // 5 seconds
+        
+        // Function to convert a number to binary string representation with leading zeros
+        function toBinaryString(num) {
+            return num.toString(2).padStart(8, '0');
+        }
+        
+        // Function to format current time
+        function getCurrentTimeString() {
+            const now = new Date();
+            return now.toLocaleTimeString();
+        }
+        
+        // Function to format boolean values with better readability and color
+        function formatBoolean(value) {
+            return value ? 'Yes' : 'No';
+        }
+        
+        // Function to apply color coding to fault indicators
+        function applyFaultColorCoding() {
+            // Get all fault-related elements
+            const faultElements = [
+                { id: 'watchdog-fault', element: document.getElementById('watchdog-fault') },
+                { id: 'otg-fault', element: document.getElementById('otg-fault') },
+                { id: 'battery-fault', element: document.getElementById('battery-fault') },
+                { id: 'ntc-cold-fault', element: document.getElementById('ntc-cold-fault') },
+                { id: 'ntc-hot-fault', element: document.getElementById('ntc-hot-fault') }
+            ];
+            
+            // Apply appropriate colors based on value
+            faultElements.forEach(item => {
+                if (item.element.textContent === 'Yes') {
+                    item.element.style.color = '#d73a49'; // Red color for faults
+                    item.element.style.fontWeight = 'bold';
+                } else {
+                    item.element.style.color = '#28a745'; // Green for normal
+                    item.element.style.fontWeight = 'normal';
+                }
+            });
+            
+            // Special handling for charge fault status
+            const chargeFaultStatus = document.getElementById('charge-fault-status');
+            if (chargeFaultStatus.textContent !== 'Normal') {
+                chargeFaultStatus.style.color = '#d73a49'; // Red for abnormal
+                chargeFaultStatus.style.fontWeight = 'bold';
+            } else {
+                chargeFaultStatus.style.color = '#28a745'; // Green for normal
+                chargeFaultStatus.style.fontWeight = 'normal';
+            }
+            
+            // Special handling for NTC fault status
+            const ntcFaultStatus = document.getElementById('ntc-fault-status');
+            if (ntcFaultStatus.textContent !== 'Normal') {
+                ntcFaultStatus.style.color = '#d73a49'; // Red for abnormal
+                ntcFaultStatus.style.fontWeight = 'bold';
+            } else {
+                ntcFaultStatus.style.color = '#28a745'; // Green for normal
+                ntcFaultStatus.style.fontWeight = 'normal';
+            }
+        }
+        
+        // Function to fetch power controller stats
+        function fetchPowerStats() {
+            const statusElement = document.getElementById('status');
+            
+            fetch('/api/power/stats')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.ok) {
+                        // Update the UI with decoded power stats
+                        
+                        // Charger Status fields
+                        document.getElementById('vbus-status').textContent = data.vbus_status;
+                        document.getElementById('charge-status').textContent = data.charge_status;
+                        document.getElementById('dpm-active').textContent = formatBoolean(data.dpm_active);
+                        document.getElementById('power-good').textContent = formatBoolean(data.power_good);
+                        document.getElementById('thermal-regulation').textContent = formatBoolean(data.thermal_regulation_active);
+                        document.getElementById('vsys-regulation').textContent = formatBoolean(data.vsys_regulation_active);
+                        
+                        // Fault Status fields
+                        document.getElementById('watchdog-fault').textContent = formatBoolean(data.watchdog_fault);
+                        document.getElementById('otg-fault').textContent = formatBoolean(data.otg_fault);
+                        document.getElementById('charge-fault-status').textContent = data.charge_fault_status;
+                        document.getElementById('battery-fault').textContent = formatBoolean(data.battery_fault);
+                        document.getElementById('ntc-fault-status').textContent = data.ntc_fault_status;
+                        document.getElementById('ntc-cold-fault').textContent = formatBoolean(data.ntc_cold_fault);
+                        document.getElementById('ntc-hot-fault').textContent = formatBoolean(data.ntc_hot_fault);
+                        
+                        // Update timestamp
+                        document.getElementById('last-updated').textContent = getCurrentTimeString();
+                        
+                        // Apply color coding to fault indicators
+                        applyFaultColorCoding();
+                        
+                        // Show success message briefly
+                        statusElement.style.display = 'block';
+                        statusElement.textContent = 'Power stats updated successfully';
+                        statusElement.style.backgroundColor = '#e8f5e9';
+                        
+                        // Hide the status message after 2 seconds
+                        setTimeout(() => {
+                            statusElement.style.display = 'none';
+                        }, 2000);
+                    } else {
+                        throw new Error('Failed to get power stats');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching power stats:', error);
+                    statusElement.style.display = 'block';
+                    statusElement.textContent = `Error: ${error.message}`;
+                    statusElement.style.backgroundColor = '#ffebee';
+                });
+        }
+        
+        // Function to send digital command
         function sendCommand(type, id, value) {
             const statusElement = document.getElementById('status');
             statusElement.style.display = 'block';
@@ -103,6 +332,15 @@
                     statusElement.style.backgroundColor = '#ffebee';
                 });
         }
+        
+        // Start auto-refresh when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            // Fetch power stats immediately
+            fetchPowerStats();
+            
+            // Set up auto-refresh interval
+            refreshIntervalId = setInterval(fetchPowerStats, REFRESH_INTERVAL);
+        });
     </script>
 </body>
 </html>
