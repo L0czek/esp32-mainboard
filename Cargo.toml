@@ -5,8 +5,12 @@ rust-version = "1.86"
 version      = "0.1.0"
 
 [[bin]]
-name = "mainboard"
-path = "./src/bin/main.rs"
+name = "empty"
+path = "./src/bin/empty/main.rs"
+
+[[bin]]
+name = "www_test"
+path = "./src/bin/www_test/main.rs"
 
 [dependencies]
 defmt = "1.0.1"

@@ -7,8 +7,14 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use mainboard::simple_output::initialize_simple_output;
-use mainboard::{create_board, server, wifi, Board};
+mod config;
+mod html;
+mod server;
+mod simple_output;
+mod wifi;
+
+use simple_output::initialize_simple_output;
+use mainboard::{create_board, Board};
 
 use defmt::info;
 use embassy_executor::Spawner;
