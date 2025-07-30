@@ -13,8 +13,11 @@ mod server;
 mod simple_output;
 mod wifi;
 
-use mainboard::board::Board;
+use esp_hal::analog::adc::AdcConfig;
+use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
+use mainboard::power::PowerControllerIO;
+use mainboard::tasks::{handle_ext_interrupt_line, handle_power_controller, monitor_voltages};
 use simple_output::initialize_simple_output;
 
 use defmt::info;
@@ -53,6 +56,8 @@ async fn main(spawner: Spawner) {
     esp_hal_embassy::init(timer0.alarm0);
     info!("Embassy initialized!");
 
+    init_i2c_bus(peripherals.I2C0, board.Sda, board.Scl).expect("Failed to initialize I2C bus");
+
     // Initialize RNG and timer for WiFi
     let mut rng = esp_hal::rng::Rng::new(peripherals.RNG);
     let timer1 = TimerGroup::new(peripherals.TIMG0);
@@ -60,6 +65,25 @@ async fn main(spawner: Spawner) {
     // Initialize esp-radio controller
     let esp_wifi_ctrl = ESP_WIFI_CTRL.init(esp_wifi::init(timer1.timer0, rng).unwrap());
 
+    let power_config = Default::default();
+    let power_io = PowerControllerIO {
+        charger_i2c: acquire_i2c_bus(),
+        pcf8574_i2c: acquire_i2c_bus(),
+        boost_converter_enable: board.BoostEn,
+    };
+    let _ = spawner.spawn(handle_power_controller(power_config, power_io));
+
+    let adc_config = AdcConfig::new();
+    let calibration = Default::default();
+    let _ = spawner.spawn(monitor_voltages(
+        peripherals.ADC1,
+        adc_config,
+        calibration,
+        board.BatVol,
+        board.BoostVol,
+    ));
+
+    let _ = spawner.spawn(handle_ext_interrupt_line(board.GlobalInt));
     // Initialize WiFi in mixed mode (AP + STA)
     info!("Initializing WiFi...");
     let wifi_resources =
