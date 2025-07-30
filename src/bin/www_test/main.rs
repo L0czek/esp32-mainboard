@@ -14,7 +14,8 @@ mod simple_output;
 mod wifi;
 
 use simple_output::initialize_simple_output;
-use mainboard::{create_board, Board};
+use mainboard::create_board;
+use mainboard::board::Board;
 
 use defmt::info;
 use embassy_executor::Spawner;
