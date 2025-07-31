@@ -1,7 +1,7 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 /// This module implements the simple modules interface
-use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::gpio::{DriveMode, Flex, Level, Output, OutputConfig, OutputPin};
 use esp_hal::peripherals::*;
 use once_cell::sync::OnceCell;
 
@@ -10,15 +10,26 @@ static OUTPUT_IO: OnceCell<Mutex<CriticalSectionRawMutex, OutputIO>> = OnceCell:
 // App state to share with handlers
 #[derive(Debug)]
 struct OutputIO {
-    d0: Output<'static>,
-    d1: Output<'static>,
+    d0: Flex<'static>,
+    d1: Flex<'static>,
+}
+
+fn new_configured_output<Pin: OutputPin + 'static>(pin: Pin) -> Flex<'static> {
+    let mut gpio = Output::new(
+        pin,
+        Level::High,
+        OutputConfig::default().with_drive_mode(DriveMode::OpenDrain),
+    )
+    .into_flex();
+    gpio.set_input_enable(true);
+    gpio
 }
 
 impl OutputIO {
     fn new(d0: GPIO23<'static>, d1: GPIO22<'static>) -> Self {
         Self {
-            d0: Output::new(d0, Level::Low, OutputConfig::default()),
-            d1: Output::new(d1, Level::Low, OutputConfig::default()),
+            d0: new_configured_output(d0),
+            d1: new_configured_output(d1),
         }
     }
 }
@@ -44,4 +55,28 @@ pub async fn set_state(id: OutputID, state: bool) {
         OutputID::Output1 => output_io.d0.set_level(state.into()),
         OutputID::Output2 => output_io.d1.set_level(state.into()),
     }
+}
+
+pub enum PinState {
+    InLow,
+    InHigh,
+    PullingDown,
+}
+
+fn pin_state(pin: &Flex<'static>) -> PinState {
+    match (pin.is_high(), pin.is_set_low()) {
+        (true, true) => PinState::InHigh,
+        (false, false) => PinState::InLow,
+        (false, true) => PinState::PullingDown,
+        (true, false) => todo!("error"),
+    }
+}
+
+pub async fn get_states() -> (PinState, PinState) {
+    let output_io = OUTPUT_IO
+        .get()
+        .expect("Simple output not initialized")
+        .lock()
+        .await;
+    (pin_state(&output_io.d0), pin_state(&output_io.d1))
 }
