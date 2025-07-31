@@ -57,18 +57,31 @@ pub async fn set_state(id: OutputID, state: bool) {
     }
 }
 
+#[derive(Debug)]
 pub enum PinState {
     InLow,
     InHigh,
     PullingDown,
+    FunckingBad,
+}
+
+impl PinState {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            PinState::InLow => "In Low",
+            PinState::InHigh => "In High",
+            PinState::PullingDown => "Pulling Down",
+            PinState::FunckingBad => "Fucking Bad (short circuit!)",
+        }
+    }
 }
 
 fn pin_state(pin: &Flex<'static>) -> PinState {
     match (pin.is_high(), pin.is_set_low()) {
-        (true, true) => PinState::InHigh,
+        (true, false) => PinState::InHigh,
         (false, false) => PinState::InLow,
         (false, true) => PinState::PullingDown,
-        (true, false) => todo!("error"),
+        (true, true) => PinState::FunckingBad,
     }
 }
 

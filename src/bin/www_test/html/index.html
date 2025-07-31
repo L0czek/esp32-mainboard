@@ -100,22 +100,53 @@
             margin-top: 8px;
             font-style: italic;
         }
+        .flex-between {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .last-updated-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 8px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <h1>ESP32 Control Panel</h1>
     
-    <div class="control-panel">
+    <section class="control-panel">
         <h2>Digital Outputs</h2>
         <div class="button-group">
-            <button class="button" onclick="sendCommand('digital', 0, 1)">D0 ON</button>
-            <button class="button off" onclick="sendCommand('digital', 0, 0)">D0 OFF</button>
+            <button class="button off" onclick="sendCommand('digital', 0, 0)">D0 pull down</button>
+            <button class="button" onclick="sendCommand('digital', 0, 1)">D0 reset</button>
         </div>
         <div class="button-group">
-            <button class="button" onclick="sendCommand('digital', 1, 1)">D1 ON</button>
-            <button class="button off" onclick="sendCommand('digital', 1, 0)">D1 OFF</button>
+            <button class="button off" onclick="sendCommand('digital', 1, 0)">D1 pull down</button>
+            <button class="button" onclick="sendCommand('digital', 1, 1)">D1 reset</button>
         </div>
-    </div>
+    </section>
+
+    <section class="control-panel">
+        <h2>Pin States</h2>
+        <div class="flex-between">
+            <h3>Current States</h3>
+            <div>
+                <button onclick="fetchPinStates()" class="button">Refresh</button>
+            </div>
+        </div>
+        <div class="stats-row">
+            <span class="stats-label">Pin 0 State:</span>
+            <span id="pin0-state" class="stats-value">Loading...</span>
+        </div>
+        <div class="stats-row">
+            <span class="stats-label">Pin 1 State:</span>
+            <span id="pin1-state" class="stats-value">Loading...</span>
+        </div>
+        <p class="last-updated-text">Last updated: <span id="pins-last-updated">Never</span></p>
+    </section>
     
     <div class="control-panel">
         <h2>Power Controller Stats</h2>
@@ -428,13 +459,58 @@
             toggleButton.classList.add(enabled ? 'off' : '');
         }
         
+        // Function to fetch pin states
+        function fetchPinStates() {
+            const statusElement = document.getElementById('status');
+            
+            fetch('/api/pins/states')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.ok) {
+                        // Update the UI with pin states
+                        document.getElementById('pin0-state').textContent = data.pin0_state;
+                        document.getElementById('pin1-state').textContent = data.pin1_state;
+                        
+                        // Update timestamp
+                        document.getElementById('pins-last-updated').textContent = getCurrentTimeString();
+                        
+                        // Show success message briefly
+                        statusElement.style.display = 'block';
+                        statusElement.textContent = 'Pin states updated successfully';
+                        statusElement.style.backgroundColor = '#e8f5e9';
+                        
+                        // Hide the status message after 2 seconds
+                        setTimeout(() => {
+                            statusElement.style.display = 'none';
+                        }, 2000);
+                    } else {
+                        throw new Error('Failed to get pin states');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching pin states:', error);
+                    statusElement.style.display = 'block';
+                    statusElement.textContent = `Error: ${error.message}`;
+                    statusElement.style.backgroundColor = '#ffebee';
+                });
+        }
+        
         // Start auto-refresh when the page loads
         document.addEventListener('DOMContentLoaded', () => {
-            // Fetch power stats immediately
+            // Fetch data immediately
             fetchPowerStats();
+            fetchPinStates();
             
-            // Set up auto-refresh interval
-            refreshIntervalId = setInterval(fetchPowerStats, REFRESH_INTERVAL);
+            // Set up auto-refresh intervals
+            refreshIntervalId = setInterval(() => {
+                fetchPowerStats();
+                fetchPinStates();
+            }, REFRESH_INTERVAL);
         });
     </script>
 </body>

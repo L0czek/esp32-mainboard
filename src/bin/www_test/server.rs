@@ -12,7 +12,10 @@ use crate::{server::alloc::string::ToString, simple_output::set_state};
 use alloc::string::String;
 
 use crate::wifi::WifiResources;
-use crate::{html::INDEX_HTML, simple_output::OutputID};
+use crate::{
+    html::INDEX_HTML,
+    simple_output::{get_states, OutputID},
+};
 use bq24296m;
 use mainboard::board::POWER_CONTROL;
 use mainboard::tasks::{PowerRequest, PowerResponse};
@@ -23,6 +26,13 @@ const WEB_TASK_POOL_SIZE: usize = 8;
 #[derive(Serialize)]
 struct APIResponse {
     ok: bool,
+}
+
+#[derive(Serialize)]
+struct PinStatesResponse<'a> {
+    ok: bool,
+    pin0_state: &'a str,
+    pin1_state: &'a str,
 }
 
 #[derive(Serialize)]
@@ -69,6 +79,7 @@ impl AppBuilder for AppProps {
                 ("/api/power/boost", parse_path_segment::<bool>()),
                 get(power_boost_handler),
             )
+            .route("/api/pins/states", get(pin_states_handler))
     }
 }
 
@@ -128,6 +139,27 @@ async fn power_boost_handler(enable: bool) -> impl IntoResponse {
 
     Ok(picoserve::response::Json(response))
 }
+
+/// Handler for getting pin states
+async fn pin_states_handler() -> impl IntoResponse {
+    info!("Getting pin states");
+
+    // Get pin states from simple_output module
+    let (pin0, pin1) = get_states().await;
+
+    let pin0_state = pin0.to_str();
+    let pin1_state = pin1.to_str();
+
+    // Create and return the response
+    let response = PinStatesResponse {
+        ok: true,
+        pin0_state,
+        pin1_state,
+    };
+
+    picoserve::response::Json(response)
+}
+
 /// Handler for power controller stats
 async fn power_stats_handler() -> impl IntoResponse {
     info!("Getting power controller stats");
