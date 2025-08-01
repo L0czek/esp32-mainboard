@@ -4,11 +4,11 @@ use embassy_futures::select::{select, Either};
 use embassy_time::Timer;
 
 use crate::{
-    board::POWER_CONTROL,
+    board::{POWER_CONTROL, POWER_STATE},
     error::AnyError,
     power::{
         PowerController, PowerControllerConfig, PowerControllerError, PowerControllerIO,
-        PowerControllerMode, PowerControllerStats,
+        PowerControllerMode
     },
     I2cType,
 };
@@ -17,12 +17,10 @@ pub enum PowerRequest {
     SwitchMode(PowerControllerMode),
     EnableBoostConverter(bool),
     CheckInterrupt,
-    GetStats,
 }
 
 pub enum PowerResponse {
     Ok,
-    Status(PowerControllerStats),
     Err(PowerControllerError<I2cType>),
 }
 
@@ -69,10 +67,6 @@ fn handle_power_controller_command(
             pctl.disable_boost_converter();
             PowerResponse::Ok
         }
-        PowerRequest::GetStats => match pctl.read_stats() {
-            Ok(stats) => PowerResponse::Status(stats),
-            Err(e) => PowerResponse::Err(e),
-        },
         PowerRequest::CheckInterrupt => {
             // TODO: expand this logic
             match handle_power_controller_interrupt(pctl) {
@@ -99,6 +93,12 @@ async fn handle_power_controller_impl(
     };
 
     loop {
+        if let Ok(stats) = pctl.read_stats() {
+            POWER_STATE.sender().send(stats);
+        } else {
+            error!("Failed to read charger stats");
+        }
+
         let timeout = Timer::after_secs(sleep_time);
         let command = POWER_CONTROL.recv_request();
 
@@ -111,8 +111,5 @@ async fn handle_power_controller_impl(
 
         pctl.reset_watchdog()?;
         info!("Charger watchdog reset");
-
-        let stats = pctl.read_stats()?;
-        stats.dump();
     }
 }

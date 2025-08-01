@@ -7,12 +7,15 @@
     holding buffers for the duration of a data transfer."
 )]
 
+use core::borrow::Borrow;
+
 use esp_hal::analog::adc::AdcConfig;
-use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
+use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board, ADC_STATE, POWER_STATE};
 use mainboard::create_board;
 
 use defmt::info;
 use embassy_executor::Spawner;
+
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::timer::systimer::SystemTimer;
@@ -60,6 +63,7 @@ async fn main(spawner: Spawner) {
         boost_converter_enable: board.BoostEn,
     };
     let _ = spawner.spawn(handle_power_controller(power_config, power_io));
+    let _ = spawner.spawn(log_power_state_changes());
 
     let adc_config = AdcConfig::new();
     let calibration = Default::default();
@@ -70,6 +74,7 @@ async fn main(spawner: Spawner) {
         board.BatVol,
         board.BoostVol,
     ));
+    let _ = spawner.spawn(log_voltage_changes());
 
     let _ = spawner.spawn(handle_ext_interrupt_line(board.GlobalInt));
 
@@ -79,4 +84,23 @@ async fn main(spawner: Spawner) {
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-rc.0/examples/src/bin
+}
+
+#[embassy_executor::task]
+async fn log_voltage_changes() {
+    loop {
+        if let Some(state) = ADC_STATE.try_get() {
+            info!("Battery voltage: {}mV, Boost voltage: {}mV", state.battery_voltage, state.boost_voltage);
+        }
+        Timer::after(Duration::from_secs(10)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn log_power_state_changes() {
+    let mut receiver = POWER_STATE.receiver().unwrap();
+    loop {
+        let stats = receiver.changed().await.borrow().clone();
+        stats.dump();
+    }
 }

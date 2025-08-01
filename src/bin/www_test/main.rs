@@ -13,8 +13,10 @@ mod server;
 mod simple_output;
 mod wifi;
 
+use core::borrow::Borrow;
+
 use esp_hal::analog::adc::AdcConfig;
-use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
+use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board, ADC_STATE, POWER_STATE};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{handle_ext_interrupt_line, handle_power_controller, monitor_voltages};
@@ -28,8 +30,6 @@ use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
-
-extern crate alloc;
 
 // StaticCell for WiFi controller
 static ESP_WIFI_CTRL: StaticCell<esp_wifi::EspWifiController<'static>> = StaticCell::new();
@@ -72,6 +72,7 @@ async fn main(spawner: Spawner) {
         boost_converter_enable: board.BoostEn,
     };
     let _ = spawner.spawn(handle_power_controller(power_config, power_io));
+    let _ = spawner.spawn(log_power_state_changes());
 
     let adc_config = AdcConfig::new();
     let calibration = Default::default();
@@ -82,8 +83,10 @@ async fn main(spawner: Spawner) {
         board.BatVol,
         board.BoostVol,
     ));
+    let _ = spawner.spawn(log_voltage_changes());
 
     let _ = spawner.spawn(handle_ext_interrupt_line(board.GlobalInt));
+
     // Initialize WiFi in mixed mode (AP + STA)
     info!("Initializing WiFi...");
     let wifi_resources =
@@ -91,7 +94,7 @@ async fn main(spawner: Spawner) {
     info!("WiFi initialized!");
 
     // Initialize simple output
-    initialize_simple_output(board.D0, board.D1);
+    initialize_simple_output(&spawner, board.D0, board.D1);
 
     // Start the web server
     info!("Starting web server...");
@@ -106,5 +109,24 @@ async fn main(spawner: Spawner) {
             wifi_resources.sta_stack.config_v4().map(|c| c.address)
         );
         Timer::after(Duration::from_secs(10)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn log_voltage_changes() {
+    loop {
+        if let Some(state) = ADC_STATE.try_get() {
+            info!("Battery voltage: {}mV, Boost voltage: {}mV", state.battery_voltage, state.boost_voltage);
+        }
+        Timer::after(Duration::from_secs(10)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn log_power_state_changes() {
+    let mut receiver = POWER_STATE.receiver().unwrap();
+    loop {
+        let stats = receiver.changed().await.borrow().clone();
+        stats.dump();
     }
 }
