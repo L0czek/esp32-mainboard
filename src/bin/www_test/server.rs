@@ -8,6 +8,7 @@ use picoserve::{
 };
 use serde::Serialize;
 extern crate alloc;
+use mainboard::board::POWER_STATE;
 use crate::{server::alloc::string::ToString, simple_output::set_state};
 use alloc::string::String;
 
@@ -129,12 +130,6 @@ async fn power_boost_handler(enable: bool) -> impl IntoResponse {
             info!("Failed to set boost converter state");
             return Err(BadRequest::Bad("Failed to set boost converter".to_string()));
         }
-        _ => {
-            info!("Unexpected power controller response");
-            return Err(BadRequest::Bad(
-                "Unexpected power controller response".to_string(),
-            ));
-        }
     };
 
     Ok(picoserve::response::Json(response))
@@ -164,9 +159,8 @@ async fn pin_states_handler() -> impl IntoResponse {
 async fn power_stats_handler() -> impl IntoResponse {
     info!("Getting power controller stats");
 
-    // Request power controller stats
-    let response = match POWER_CONTROL.transact(PowerRequest::GetStats).await {
-        PowerResponse::Status(stats) => {
+    let response = match POWER_STATE.try_get() {
+        Some(stats) => {
             // Use helper functions to decode register values
             let status = &stats.charger_status;
             let faults = &stats.charger_faults;
@@ -223,15 +217,9 @@ async fn power_stats_handler() -> impl IntoResponse {
                 boost_converter_enabled: stats.boost_enabled,
             }
         }
-        PowerResponse::Err(_) => {
-            info!("Failed to get power controller stats");
-            return Err(BadRequest::Bad("Failed to get power stats".to_string()));
-        }
         _ => {
-            info!("Unexpected power controller response");
-            return Err(BadRequest::Bad(
-                "Unexpected power controller response".to_string(),
-            ));
+            info!("Power stats not available yet");
+            return Err(BadRequest::Bad("Power stats not available yet".to_string()));
         }
     };
 
