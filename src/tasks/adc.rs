@@ -1,11 +1,17 @@
-use defmt::info;
+use defmt::{info, Format};
 use embassy_time::Timer;
 use esp_hal::{
     analog::adc::{Adc, AdcCalLine, AdcConfig},
     peripherals::*,
 };
 
-use crate::board::{BatVolPin, BoostVolPin};
+use crate::board::{BatVolPin, BoostVolPin, ADC_STATE};
+
+#[derive(Debug, Format, Clone)]
+pub struct AdcState {
+    pub battery_voltage: u32,  // in mV
+    pub boost_voltage: u32,    // in mV
+}
 
 pub struct VoltageMonitorCalibrationConfig {
     pub battery_voltage_calibration: u32,
@@ -48,8 +54,11 @@ pub async fn monitor_voltages(
             * calibration.boost_voltage_calibration
             / 1000;
 
-        info!("Battery voltage: {}, Boost voltage: {}", bat_v, boost_v);
+        ADC_STATE.sender().send(AdcState {
+            battery_voltage: bat_v,
+            boost_voltage: boost_v,
+        });
 
-        Timer::after_secs(10).await;
+        Timer::after_millis(100).await;
     }
 }

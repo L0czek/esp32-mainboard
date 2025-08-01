@@ -9,8 +9,12 @@ use once_cell::sync::OnceCell;
 
 use crate::{
     channel::RequestResponseChannel,
-    tasks::{PowerRequest, PowerResponse},
+    power::PowerControllerStats,
+    tasks::{AdcState, PowerRequest, PowerResponse},
 };
+
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch;
 
 pub type GlobalIntPin = GPIO7<'static>;
 pub type BoostEnPin = GPIO15<'static>;
@@ -122,5 +126,14 @@ pub fn acquire_i2c_bus() -> AtomicDevice<'static, I2c<'static, Blocking>> {
     }
 }
 
+// Command channel for power control
 pub static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> =
     RequestResponseChannel::with_static_channels();
+
+// Power state management
+pub static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> = 
+    watch::Watch::new();
+
+// ADC state management
+pub static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = 
+    watch::Watch::new();

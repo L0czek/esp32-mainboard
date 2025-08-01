@@ -42,7 +42,7 @@ pub struct PowerControllerConfig {
     pub enable_battery_fault_int: bool,
 }
 
-#[derive(Debug, Format)]
+#[derive(Debug, Format, Clone)]
 pub struct PowerControllerStats {
     pub charger_status: SystemStatusRegister,
     pub charger_faults: NewFaultRegister,
