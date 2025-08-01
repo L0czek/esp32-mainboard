@@ -1,4 +1,4 @@
-use defmt::{info, Format};
+use defmt::Format;
 use embassy_time::Timer;
 use esp_hal::{
     analog::adc::{Adc, AdcCalLine, AdcConfig},
@@ -59,6 +59,6 @@ pub async fn monitor_voltages(
             boost_voltage: boost_v,
         });
 
-        Timer::after_millis(100).await;
+        Timer::after_secs(1).await;
     }
 }

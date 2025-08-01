@@ -1,5 +1,5 @@
 use defmt::{error, info};
-use embassy_futures::select::{self, Either4};
+use embassy_futures::select::{self, Either, Either4};
 use embassy_time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -10,7 +10,7 @@ use picoserve::{
     AppBuilder, AppRouter, Router,
 };
 extern crate alloc;
-use mainboard::{board::POWER_STATE, power::PowerControllerStats};
+use mainboard::{board::{POWER_STATE, ADC_STATE}, power::PowerControllerStats};
 use crate::simple_output::{set_state, watch_output};
 use alloc::string::String;
 
@@ -51,6 +51,12 @@ struct PowerStatsResponse<'a> {
     ntc_hot_fault: bool,
     // Boost converter state
     boost_converter_enabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct AdcVoltageResponse {
+    pub battery_voltage: u32,
+    pub boost_voltage: u32,
 }
 
 // App properties for the web server
@@ -144,6 +150,8 @@ enum OutgoingMessage<'a> {
     PowerStats(PowerStatsResponse<'a>),
     #[serde(rename = "pin_state")]
     PinState(PinStatesResponse<'a>),
+    #[serde(rename = "adc_voltage")]
+    AdcVoltage(AdcVoltageResponse),
 }
 
 struct WebsocketHandler;
@@ -171,9 +179,19 @@ impl ws::WebSocketCallback for WebsocketHandler {
             let _ = tx.close(Some((1011, "Failed to watch output 2"))).await;
             return Ok(());
         };
+        let Some(mut adc_state_receiver) = ADC_STATE.receiver() else {
+            error!("Failed to get ADC state receiver");
+            let _ = tx.close(Some((1011, "Failed to get ADC state receiver"))).await;
+            return Ok(());
+        };
 
         let close_reason = loop {
-            match select::select4(rx.next_message(&mut buffer), power_state_receiver.changed(), out1_receiver.changed(), out2_receiver.changed()).await {
+            match select::select4(
+                rx.next_message(&mut buffer),
+                power_state_receiver.changed(),
+                select::select(out1_receiver.changed(), out2_receiver.changed()),
+                adc_state_receiver.changed()
+            ).await {
                 Either4::First(x) => match x {
                     Ok(ws::Message::Text(data)) => {
                         // Try to parse the incoming message as a command
@@ -242,19 +260,30 @@ impl ws::WebSocketCallback for WebsocketHandler {
                     let power_stats_response = format_power_stats_response(power_state);
                     tx.send_json(OutgoingMessage::PowerStats(power_stats_response)).await
                 }
-                Either4::Third(out1_state) => {
-                    let pin_state_response = PinStatesResponse {
-                        pin_number: 0,
-                        state: out1_state.to_str(),
-                    };
-                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                Either4::Third(x) => {
+                    match x {
+                        Either::First(out1_state) => {
+                            let pin_state_response = PinStatesResponse {
+                                pin_number: 0,
+                                state: out1_state.to_str(),
+                            };
+                            tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                        }
+                        Either::Second(out2_state) => {
+                            let pin_state_response = PinStatesResponse {
+                                pin_number: 1,
+                                state: out2_state.to_str(),
+                            };
+                            tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                        }
+                    }
                 }
-                Either4::Fourth(out2_state) => {
-                    let pin_state_response = PinStatesResponse {
-                        pin_number: 1,
-                        state: out2_state.to_str(),
+                Either4::Fourth(adc_state) => {
+                    let adc_response = AdcVoltageResponse {
+                        battery_voltage: adc_state.battery_voltage,
+                        boost_voltage: adc_state.boost_voltage,
                     };
-                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                    tx.send_json(OutgoingMessage::AdcVoltage(adc_response)).await
                 }
             }?;
         };
@@ -281,9 +310,9 @@ pub async fn run_server(spawner: embassy_executor::Spawner, wifi_resources: &Wif
         picoserve::Config<Duration>,
         picoserve::Config::new(picoserve::Timeouts {
             start_read_request: Some(Duration::from_secs(5)),
-            persistent_start_read_request: Some(Duration::from_secs(1)),
-            read_request: Some(Duration::from_secs(1)),
-            write: Some(Duration::from_secs(1)),
+            persistent_start_read_request: Some(Duration::from_secs(3)),
+            read_request: Some(Duration::from_secs(3)),
+            write: Some(Duration::from_secs(3)),
         })
         .keep_connection_alive()
     );

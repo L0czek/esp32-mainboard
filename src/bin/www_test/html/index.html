@@ -93,12 +93,6 @@
             align-items: center;
             margin-bottom: 10px;
         }
-        .last-updated-text {
-            font-size: 12px;
-            color: #666;
-            margin-top: 8px;
-            font-style: italic;
-        }
     </style>
 </head>
 <body>
@@ -128,6 +122,20 @@
             <span id="pin1-state" class="stats-value">Loading...</span>
         </div>
 
+    </section>
+
+    <section class="control-panel">
+        <h2>Voltage Readings</h2>
+        <div class="stats-panel">
+            <div class="stats-row">
+                <span class="stats-label">Battery Voltage:</span>
+                <span id="battery-voltage" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Boost Voltage:</span>
+                <span id="boost-voltage" class="stats-value">Loading...</span>
+            </div>
+        </div>
     </section>
     
     <div class="control-panel">
@@ -445,6 +453,9 @@
                         case 'pin_state':
                             updatePinStatesUI(data);
                             break;
+                        case 'adc_voltage':
+                            updateVoltageUI(data);
+                            break;
                         default:
                             console.warn('Unknown message type:', data.type, data);
                     }
@@ -486,6 +497,12 @@
             if (pinElement) {
                 pinElement.textContent = data.state;
             }
+        }
+
+        // Update voltage readings in the UI
+        function updateVoltageUI(data) {
+            document.getElementById('battery-voltage').textContent = (data.battery_voltage / 1000).toFixed(2) + ' V';
+            document.getElementById('boost-voltage').textContent = (data.boost_voltage / 1000).toFixed(2) + ' V';
         }
         
         // Initialize WebSocket when the page loads
