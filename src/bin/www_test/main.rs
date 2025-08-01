@@ -96,7 +96,7 @@ async fn main(spawner: Spawner) {
     info!("WiFi initialized!");
 
     // Initialize simple output
-    initialize_simple_output(board.D0, board.D1);
+    initialize_simple_output(&spawner, board.D0, board.D1);
 
     // Start the web server
     info!("Starting web server...");
