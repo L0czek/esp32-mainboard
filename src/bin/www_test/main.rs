@@ -31,8 +31,6 @@ use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
-extern crate alloc;
-
 // StaticCell for WiFi controller
 static ESP_WIFI_CTRL: StaticCell<esp_wifi::EspWifiController<'static>> = StaticCell::new();
 

@@ -81,19 +81,6 @@
         .stats-value {
             font-family: monospace;
         }
-        .refresh-button {
-            background-color: #0366d6;
-            border: none;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-        .refresh-button:hover {
-            background-color: #0258ba;
-        }
         .refresh-info {
             font-size: 12px;
             color: #666;
@@ -131,12 +118,7 @@
 
     <section class="control-panel">
         <h2>Pin States</h2>
-        <div class="flex-between">
-            <h3>Current States</h3>
-            <div>
-                <button onclick="fetchPinStates()" class="button">Refresh</button>
-            </div>
-        </div>
+        <h3>Current States</h3>
         <div class="stats-row">
             <span class="stats-label">Pin 0 State:</span>
             <span id="pin0-state" class="stats-value">Loading...</span>
@@ -145,7 +127,7 @@
             <span class="stats-label">Pin 1 State:</span>
             <span id="pin1-state" class="stats-value">Loading...</span>
         </div>
-        <p class="last-updated-text">Last updated: <span id="pins-last-updated">Never</span></p>
+
     </section>
     
     <div class="control-panel">
@@ -240,32 +222,16 @@
                 <span id="ntc-hot-fault" class="stats-value">Loading...</span>
             </div>
             
-            <div class="stats-row">
-                <span class="stats-label">Last Updated:</span>
-                <span id="last-updated" class="stats-value">Never</span>
-            </div>
-            <button class="refresh-button" onclick="fetchPowerStats()">Refresh Now</button>
-            <div class="refresh-info">Auto-refreshes every 5 seconds</div>
+
+            <div class="refresh-info" id="connection-status">Connecting to WebSocket...</div>
         </div>
     </div>
     
     <div id="status" class="status"></div>
 
     <script>
-        // Variables for tracking auto-refresh
-        let refreshIntervalId = null;
-        const REFRESH_INTERVAL = 5000; // 5 seconds
-        
-        // Function to convert a number to binary string representation with leading zeros
-        function toBinaryString(num) {
-            return num.toString(2).padStart(8, '0');
-        }
-        
-        // Function to format current time
-        function getCurrentTimeString() {
-            const now = new Date();
-            return now.toLocaleTimeString();
-        }
+        // WebSocket connection
+        let socket = null;
         
         // Function to format boolean values with better readability and color
         function formatBoolean(value) {
@@ -315,67 +281,7 @@
             }
         }
         
-        // Function to fetch power controller stats
-        function fetchPowerStats() {
-            const statusElement = document.getElementById('status');
-            
-            fetch('/api/power/stats')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.ok) {
-                        // Update the UI with decoded power stats
-                        
-                        // Charger Status fields
-                        document.getElementById('vbus-status').textContent = data.vbus_status;
-                        document.getElementById('charge-status').textContent = data.charge_status;
-                        document.getElementById('dpm-active').textContent = formatBoolean(data.dpm_active);
-                        document.getElementById('power-good').textContent = formatBoolean(data.power_good);
-                        document.getElementById('thermal-regulation').textContent = formatBoolean(data.thermal_regulation_active);
-                        document.getElementById('vsys-regulation').textContent = formatBoolean(data.vsys_regulation_active);
-                        
-                        // Update boost converter UI with current state
-                        updateBoostUI(data.boost_converter_enabled);
-                        
-                        // Fault Status fields
-                        document.getElementById('watchdog-fault').textContent = formatBoolean(data.watchdog_fault);
-                        document.getElementById('otg-fault').textContent = formatBoolean(data.otg_fault);
-                        document.getElementById('charge-fault-status').textContent = data.charge_fault_status;
-                        document.getElementById('battery-fault').textContent = formatBoolean(data.battery_fault);
-                        document.getElementById('ntc-fault-status').textContent = data.ntc_fault_status;
-                        document.getElementById('ntc-cold-fault').textContent = formatBoolean(data.ntc_cold_fault);
-                        document.getElementById('ntc-hot-fault').textContent = formatBoolean(data.ntc_hot_fault);
-                        
-                        // Update timestamp
-                        document.getElementById('last-updated').textContent = getCurrentTimeString();
-                        
-                        // Apply color coding to fault indicators
-                        applyFaultColorCoding();
-                        
-                        // Show success message briefly
-                        statusElement.style.display = 'block';
-                        statusElement.textContent = 'Power stats updated successfully';
-                        statusElement.style.backgroundColor = '#e8f5e9';
-                        
-                        // Hide the status message after 2 seconds
-                        setTimeout(() => {
-                            statusElement.style.display = 'none';
-                        }, 2000);
-                    } else {
-                        throw new Error('Failed to get power stats');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching power stats:', error);
-                    statusElement.style.display = 'block';
-                    statusElement.textContent = `Error: ${error.message}`;
-                    statusElement.style.backgroundColor = '#ffebee';
-                });
-        }
+
         
         // Function to send digital command
         function sendCommand(type, id, value) {
@@ -384,63 +290,73 @@
             statusElement.textContent = `Sending command: ${type} ${id} ${value}...`;
             statusElement.style.backgroundColor = '#e8f5e9';
             
-            fetch(`/api/${type}/${id}/${value}`)
-                .then(response => {
-                    if (response.ok) {
-                        statusElement.textContent = `Success: ${type} ${id} set to ${value}`;
-                        statusElement.style.backgroundColor = '#e8f5e9';
-                    } else {
-                        statusElement.textContent = `Error: Failed to set ${type} ${id} to ${value}`;
-                        statusElement.style.backgroundColor = '#ffebee';
-                    }
-                })
-                .catch(error => {
-                    statusElement.textContent = `Error: ${error.message}`;
-                    statusElement.style.backgroundColor = '#ffebee';
-                });
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                statusElement.textContent = 'Error: Not connected to server';
+                statusElement.style.backgroundColor = '#ffebee';
+                setTimeout(() => statusElement.style.display = 'none', 2000);
+                return;
+            }
+            
+            const command = {
+                type: type,
+                id: id,
+                value: value
+            };
+            
+            try {
+                socket.send(JSON.stringify(command));
+                statusElement.textContent = `Command sent: ${type} ${id} set to ${value}`;
+                statusElement.style.backgroundColor = '#e8f5e9';
+            } catch (error) {
+                statusElement.textContent = `Error: ${error.message}`;
+                statusElement.style.backgroundColor = '#ffebee';
+            }
+            
+            setTimeout(() => statusElement.style.display = 'none', 2000);
         }
         
         // Function to toggle boost converter state
         function toggleBoostConverter() {
-            // Get the current state to determine what action to take
-            const statusIndicator = document.getElementById('boost-status-indicator');
-            const currentlyEnabled = statusIndicator.classList.contains('status-enabled');
-            const newState = !currentlyEnabled;
-            
             const statusElement = document.getElementById('status');
+            const boostStatusElement = document.getElementById('boost-status-indicator');
+            const currentState = boostStatusElement.classList.contains('status-enabled');
+            const newState = !currentState;
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                statusElement.style.display = 'block';
+                statusElement.textContent = 'Error: Not connected to server';
+                statusElement.style.backgroundColor = '#ffebee';
+                setTimeout(() => statusElement.style.display = 'none', 2000);
+                return;
+            }
+            
             statusElement.style.display = 'block';
-            statusElement.textContent = `Setting boost converter to ${newState ? 'enabled' : 'disabled'}...`;
+            statusElement.textContent = `${newState ? 'Enabling' : 'Disabling'} boost converter...`;
             statusElement.style.backgroundColor = '#e8f5e9';
             
-            fetch(`/api/power/boost/${newState}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.ok) {
-                        statusElement.textContent = `Boost converter ${newState ? 'enabled' : 'disabled'} successfully`;
-                        statusElement.style.backgroundColor = '#e8f5e9';
-                        
-                        // Fetch updated stats after a short delay
-                        setTimeout(() => fetchPowerStats(), 500);
-                        
-                        // Hide the status message after 2 seconds
-                        setTimeout(() => {
-                            statusElement.style.display = 'none';
-                        }, 2000);
-                    } else {
-                        throw new Error('Failed to set boost converter state');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error toggling boost converter:', error);
-                    statusElement.style.display = 'block';
-                    statusElement.textContent = `Error: ${error.message}`;
-                    statusElement.style.backgroundColor = '#ffebee';
-                });
+            // Send command via WebSocket
+            try {
+                const command = {
+                    type: 'power',
+                    action: 'boost',
+                    value: newState
+                };
+                socket.send(JSON.stringify(command));
+                
+                // The actual UI update will come through the WebSocket message
+                statusElement.textContent = `Boost converter ${newState ? 'enable' : 'disable'} command sent`;
+                statusElement.style.backgroundColor = '#e8f5e9';
+                
+                // Hide the status message after 2 seconds
+                setTimeout(() => {
+                    statusElement.style.display = 'none';
+                }, 2000);
+            } catch (error) {
+                console.error('Error toggling boost converter:', error);
+                statusElement.style.display = 'block';
+                statusElement.textContent = `Error: ${error.message}`;
+                statusElement.style.backgroundColor = '#ffebee';
+            }
         }
         
         // Function to update the boost converter UI based on current status
@@ -468,59 +384,112 @@
                 toggleButton.classList.remove('off');
         }
         
-        // Function to fetch pin states
-        function fetchPinStates() {
+
+        // Initialize WebSocket connection
+        function initWebSocket() {
             const statusElement = document.getElementById('status');
+            const connectionStatus = document.getElementById('connection-status');
             
-            fetch('/api/pins/states')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+            // Update connection status
+            connectionStatus.textContent = 'Connecting to WebSocket...';
+            connectionStatus.style.color = '#666';
+            
+            socket = new WebSocket('/ws');
+            
+            socket.onopen = () => {
+                console.log('WebSocket connection established');
+                connectionStatus.textContent = 'Connected to WebSocket';
+                connectionStatus.style.color = '#28a745';
+                
+                // Show status message
+                statusElement.textContent = 'Connected to WebSocket';
+                statusElement.style.display = 'block';
+                statusElement.style.backgroundColor = '#e8f5e9';
+                setTimeout(() => statusElement.style.display = 'none', 2000);
+            };
+            
+            socket.onclose = (event) => {
+                console.log('WebSocket connection closed');
+                connectionStatus.textContent = 'Disconnected. Reconnecting...';
+                connectionStatus.style.color = '#dc3545';
+                
+                // Show status message
+                statusElement.textContent = 'WebSocket connection closed. Reconnecting...';
+                statusElement.style.display = 'block';
+                statusElement.style.backgroundColor = '#ffebee';
+                
+                // Try to reconnect after a delay
+                setTimeout(initWebSocket, 3000);
+            };
+            
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                connectionStatus.textContent = 'Connection error';
+                connectionStatus.style.color = '#dc3545';
+                
+                // Show status message
+                statusElement.textContent = 'WebSocket error. Check console for details.';
+                statusElement.style.display = 'block';
+                statusElement.style.backgroundColor = '#ffebee';
+            };
+            
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Route message based on type
+                    switch (data.type) {
+                        case 'power_stats':
+                            updatePowerStatsUI(data);
+                            break;
+                        case 'pin_state':
+                            updatePinStatesUI(data);
+                            break;
+                        default:
+                            console.warn('Unknown message type:', data.type, data);
                     }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.ok) {
-                        // Update the UI with pin states
-                        document.getElementById('pin0-state').textContent = data.pin0_state;
-                        document.getElementById('pin1-state').textContent = data.pin1_state;
-                        
-                        // Update timestamp
-                        document.getElementById('pins-last-updated').textContent = getCurrentTimeString();
-                        
-                        // Show success message briefly
-                        statusElement.style.display = 'block';
-                        statusElement.textContent = 'Pin states updated successfully';
-                        statusElement.style.backgroundColor = '#e8f5e9';
-                        
-                        // Hide the status message after 2 seconds
-                        setTimeout(() => {
-                            statusElement.style.display = 'none';
-                        }, 2000);
-                    } else {
-                        throw new Error('Failed to get pin states');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching pin states:', error);
-                    statusElement.style.display = 'block';
-                    statusElement.textContent = `Error: ${error.message}`;
-                    statusElement.style.backgroundColor = '#ffebee';
-                });
+                } catch (error) {
+                    console.error('Error processing WebSocket message:', error, event.data);
+                }
+            };
         }
         
-        // Start auto-refresh when the page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            // Fetch data immediately
-            fetchPowerStats();
-            fetchPinStates();
+        // Update power stats UI with received data
+        function updatePowerStatsUI(data) {
+            // Update the UI with received power stats
+            document.getElementById('vbus-status').textContent = data.vbus_status || '';
+            document.getElementById('charge-status').textContent = data.charge_status || '';
+            document.getElementById('dpm-active').textContent = formatBoolean(data.dpm_active);
+            document.getElementById('power-good').textContent = formatBoolean(data.power_good);
+            document.getElementById('thermal-regulation').textContent = formatBoolean(data.thermal_regulation_active);
+            document.getElementById('vsys-regulation').textContent = formatBoolean(data.vsys_regulation_active);
             
-            // Set up auto-refresh intervals
-            refreshIntervalId = setInterval(() => {
-                fetchPowerStats();
-                fetchPinStates();
-            }, REFRESH_INTERVAL);
-        });
+            // Update boost converter UI
+            updateBoostUI(data.boost_converter_enabled);
+            
+            // Update fault status
+            document.getElementById('watchdog-fault').textContent = formatBoolean(data.watchdog_fault);
+            document.getElementById('otg-fault').textContent = formatBoolean(data.otg_fault);
+            document.getElementById('charge-fault-status').textContent = data.charge_fault_status || '';
+            document.getElementById('battery-fault').textContent = formatBoolean(data.battery_fault);
+            document.getElementById('ntc-fault-status').textContent = data.ntc_fault_status || '';
+            document.getElementById('ntc-cold-fault').textContent = formatBoolean(data.ntc_cold_fault);
+            document.getElementById('ntc-hot-fault').textContent = formatBoolean(data.ntc_hot_fault);
+            
+            // Apply color coding to fault indicators
+            applyFaultColorCoding();
+        }
+        
+        // Update pin states UI with received data
+        function updatePinStatesUI(data) {
+            const pinElement = document.getElementById(`pin${data.pin_number}-state`);
+            if (pinElement) {
+                pinElement.textContent = data.state;
+            }
+        }
+        
+        // Initialize WebSocket when the page loads
+        document.addEventListener('DOMContentLoaded', initWebSocket);
     </script>
 </body>
 </html>

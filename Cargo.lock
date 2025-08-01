@@ -1075,6 +1075,7 @@ dependencies = [
  "rand_core 0.9.3",
  "rtt-target",
  "serde",
+ "serde_json",
  "smoltcp",
  "static_cell",
  "thiserror",
@@ -1184,6 +1185,7 @@ checksum = "33c13ee221d37df77538b033b831099235067c6a3fdcd2b80ef46c3d5b96e3b2"
 dependencies = [
  "const-sha1",
  "data-encoding",
+ "defmt 0.3.100",
  "embassy-net",
  "embassy-time",
  "embedded-io-async",
@@ -1403,6 +1405,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b81787e655bd59cecadc91f7b6b8651330b2be6c33246039a65e5cd6f4e0828"
 dependencies = [
+ "defmt 0.3.100",
  "heapless",
  "ryu",
  "serde",
@@ -1417,6 +1420,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.142"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "030fedb782600dcbd6f02d479bf0d817ac3bb40d644745b769d6a96bc3afc5a7"
+dependencies = [
+ "itoa",
+ "memchr",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
