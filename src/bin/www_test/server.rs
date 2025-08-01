@@ -15,7 +15,7 @@ use alloc::string::String;
 use crate::wifi::WifiResources;
 use crate::{
     html::INDEX_HTML,
-    simple_output::{get_states, OutputID},
+    simple_output::{get_output_state, OutputID},
 };
 use bq24296m;
 use mainboard::board::POWER_CONTROL;
@@ -32,8 +32,8 @@ struct APIResponse {
 #[derive(Serialize)]
 struct PinStatesResponse<'a> {
     ok: bool,
-    pin0_state: &'a str,
-    pin1_state: &'a str,
+    pin0_state: Option<&'a str>,
+    pin1_state: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -140,10 +140,8 @@ async fn pin_states_handler() -> impl IntoResponse {
     info!("Getting pin states");
 
     // Get pin states from simple_output module
-    let (pin0, pin1) = get_states().await;
-
-    let pin0_state = pin0.to_str();
-    let pin1_state = pin1.to_str();
+    let pin0_state = get_output_state(OutputID::Output1).map(|state| state.to_str());
+    let pin1_state = get_output_state(OutputID::Output2).map(|state| state.to_str());
 
     // Create and return the response
     let response = PinStatesResponse {
