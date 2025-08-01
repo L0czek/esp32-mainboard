@@ -451,12 +451,21 @@
             // Update status indicator
             statusIndicator.textContent = enabled ? 'BOOST CONVERTER: ENABLED' : 'BOOST CONVERTER: DISABLED';
             statusIndicator.className = 'status-indicator';
-            statusIndicator.classList.add(enabled ? 'status-enabled' : 'status-disabled');
+            if (enabled) {
+                statusIndicator.classList.add('status-enabled');
+                statusIndicator.classList.remove('status-disabled');
+            } else {
+                statusIndicator.classList.add('status-disabled');
+                statusIndicator.classList.remove('status-enabled');
+            }
             
             // Update button text
             toggleButton.textContent = enabled ? 'Disable Boost' : 'Enable Boost';
             toggleButton.className = 'button';
-            toggleButton.classList.add(enabled ? 'off' : '');
+            if (enabled)
+                toggleButton.classList.add('off');
+            else
+                toggleButton.classList.remove('off');
         }
         
         // Function to fetch pin states
