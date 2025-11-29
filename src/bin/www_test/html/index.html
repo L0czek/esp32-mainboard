@@ -40,7 +40,7 @@
             color: white; 
             padding: 10px 20px; 
             text-align: center; 
-            text-decoration: none; 
+            text-decoration: none;
             display: inline-block; 
             font-size: 16px; 
             margin: 4px 2px; 
@@ -71,9 +71,11 @@
         .stats-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
-            border-bottom: 1px solid #e1e4e8;
             padding-bottom: 8px;
+        }
+        .stats-row:not(:last-child) {
+            border-bottom: 1px solid #e1e4e8;
+            margin-bottom: 8px;
         }
         .stats-label {
             font-weight: bold;
@@ -93,40 +95,118 @@
             align-items: center;
             margin-bottom: 10px;
         }
+        .boost-status-container {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+            gap: 20px;
+        }
+        .status-indicator {
+            flex-grow: 1;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            background-color: #f5f5f5;
+        }
+        .status-enabled {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 2px solid #2e7d32;
+        }
+        .status-disabled {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 2px solid #c62828;
+        }
     </style>
 </head>
 <body>
     <h1>ESP32 Control Panel</h1>
     
+    <div class="refresh-info" id="connection-status" style="text-align: center; margin-bottom: 20px; font-size: 14px;">Connecting to WebSocket...</div>
+    
     <section class="control-panel">
-        <h2>Digital Outputs</h2>
-        <div class="button-group">
-            <button class="button off" onclick="sendCommand('digital', 0, 0)">D0 pull down</button>
-            <button class="button" onclick="sendCommand('digital', 0, 1)">D0 reset</button>
+        <h2>Digital Outputs (D0-D4)</h2>
+        <div class="flex-between">
+            <div>
+                <strong>D0:</strong> <span id="pin0-state" class="stats-value">Loading...</span>
+            </div>
+            <div class="button-group">
+                <button class="button off" onclick="sendCommand('digital', 0, 0)">Pull Down</button>
+                <button class="button" onclick="sendCommand('digital', 0, 1)">Reset</button>
+            </div>
         </div>
-        <div class="button-group">
-            <button class="button off" onclick="sendCommand('digital', 1, 0)">D1 pull down</button>
-            <button class="button" onclick="sendCommand('digital', 1, 1)">D1 reset</button>
+        <div class="flex-between">
+            <div>
+                <strong>D1:</strong> <span id="pin1-state" class="stats-value">Loading...</span>
+            </div>
+            <div class="button-group">
+                <button class="button off" onclick="sendCommand('digital', 1, 0)">Pull Down</button>
+                <button class="button" onclick="sendCommand('digital', 1, 1)">Reset</button>
+            </div>
+        </div>
+        <div class="flex-between">
+            <div>
+                <strong>D2:</strong> <span id="pin2-state" class="stats-value">Loading...</span>
+            </div>
+            <div class="button-group">
+                <button class="button off" onclick="sendCommand('digital', 2, 0)">Pull Down</button>
+                <button class="button" onclick="sendCommand('digital', 2, 1)">Reset</button>
+            </div>
+        </div>
+        <div class="flex-between">
+            <div>
+                <strong>D3:</strong> <span id="pin3-state" class="stats-value">Loading...</span>
+            </div>
+            <div class="button-group">
+                <button class="button off" onclick="sendCommand('digital', 3, 0)">Pull Down</button>
+                <button class="button" onclick="sendCommand('digital', 3, 1)">Reset</button>
+            </div>
+        </div>
+        <div class="flex-between">
+            <div>
+                <strong>D4:</strong> <span id="pin4-state" class="stats-value">Loading...</span>
+            </div>
+            <div class="button-group">
+                <button class="button off" onclick="sendCommand('digital', 4, 0)">Pull Down</button>
+                <button class="button" onclick="sendCommand('digital', 4, 1)">Reset</button>
+            </div>
         </div>
     </section>
 
     <section class="control-panel">
-        <h2>Pin States</h2>
-        <h3>Current States</h3>
-        <div class="stats-row">
-            <span class="stats-label">Pin 0 State:</span>
-            <span id="pin0-state" class="stats-value">Loading...</span>
-        </div>
-        <div class="stats-row">
-            <span class="stats-label">Pin 1 State:</span>
-            <span id="pin1-state" class="stats-value">Loading...</span>
-        </div>
-
-    </section>
-
-    <section class="control-panel">
-        <h2>Voltage Readings</h2>
+        <h2>Analog Inputs (A0-A4)</h2>
         <div class="stats-panel">
+            <div class="stats-row">
+                <span class="stats-label">A0:</span>
+                <span id="a0-value" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">A1:</span>
+                <span id="a1-value" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">A2:</span>
+                <span id="a2-value" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">A3:</span>
+                <span id="a3-value" class="stats-value">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">A4:</span>
+                <span id="a4-value" class="stats-value">Loading...</span>
+            </div>
+        </div>
+    </section>
+
+    <div class="control-panel">
+        <h2>Power Status</h2>
+        
+        <div class="stats-panel">
+            <h3>Voltage Readings</h3>
             <div class="stats-row">
                 <span class="stats-label">Battery Voltage:</span>
                 <span id="battery-voltage" class="stats-value">Loading...</span>
@@ -136,11 +216,16 @@
                 <span id="boost-voltage" class="stats-value">Loading...</span>
             </div>
         </div>
-    </section>
-    
-    <div class="control-panel">
-        <h2>Power Controller Stats</h2>
-        <div id="power-stats" class="stats-panel">
+
+        <div class="stats-panel">
+            <h3>Boost Converter</h3>
+            <div class="boost-status-container">
+                <div id="boost-status-indicator" class="status-indicator">Loading...</div>
+                <button id="boost-toggle-btn" class="button" onclick="toggleBoostConverter()">Toggle Boost</button>
+            </div>
+        </div>
+
+        <div class="stats-panel">
             <h3>Charger Status</h3>
             <div class="stats-row">
                 <span class="stats-label">VBUS Status:</span>
@@ -166,41 +251,8 @@
                 <span class="stats-label">VSYS Regulation Active:</span>
                 <span id="vsys-regulation" class="stats-value">Loading...</span>
             </div>
-
-            <h3>Boost Converter</h3>
-            <div class="boost-status-container">
-                <div id="boost-status-indicator" class="status-indicator">Loading...</div>
-                <button id="boost-toggle-btn" class="button" onclick="toggleBoostConverter()">Toggle Boost</button>
-            </div>
-            <style>
-                .boost-status-container {
-                    display: flex;
-                    align-items: center;
-                    margin: 15px 0;
-                    gap: 20px;
-                }
-                .status-indicator {
-                    flex-grow: 1;
-                    padding: 15px;
-                    border-radius: 8px;
-                    font-size: 18px;
-                    font-weight: bold;
-                    text-align: center;
-                    background-color: #f5f5f5;
-                }
-                .status-enabled {
-                    background-color: #e8f5e9;
-                    color: #2e7d32;
-                    border: 2px solid #2e7d32;
-                }
-                .status-disabled {
-                    background-color: #ffebee;
-                    color: #c62828;
-                    border: 2px solid #c62828;
-                }
-            </style>
-
-            <h3>Fault Status</h3>
+            
+            <h4>Fault Status</h4>
             <div class="stats-row">
                 <span class="stats-label">Watchdog Fault:</span>
                 <span id="watchdog-fault" class="stats-value">Loading...</span>
@@ -229,9 +281,6 @@
                 <span class="stats-label">NTC Hot Fault:</span>
                 <span id="ntc-hot-fault" class="stats-value">Loading...</span>
             </div>
-            
-
-            <div class="refresh-info" id="connection-status">Connecting to WebSocket...</div>
         </div>
     </div>
     
@@ -503,6 +552,13 @@
         function updateVoltageUI(data) {
             document.getElementById('battery-voltage').textContent = (data.battery_voltage / 1000).toFixed(2) + ' V';
             document.getElementById('boost-voltage').textContent = (data.boost_voltage / 1000).toFixed(2) + ' V';
+            
+            // Update A0-A4 analog input values in volts
+            document.getElementById('a0-value').textContent = (data.a0 / 1000).toFixed(3) + ' V';
+            document.getElementById('a1-value').textContent = (data.a1 / 1000).toFixed(3) + ' V';
+            document.getElementById('a2-value').textContent = (data.a2 / 1000).toFixed(3) + ' V';
+            document.getElementById('a3-value').textContent = (data.a3 / 1000).toFixed(3) + ' V';
+            document.getElementById('a4-value').textContent = (data.a4 / 1000).toFixed(3) + ' V';
         }
         
         // Initialize WebSocket when the page loads

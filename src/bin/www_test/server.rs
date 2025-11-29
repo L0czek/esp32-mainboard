@@ -1,5 +1,5 @@
 use defmt::{error, info};
-use embassy_futures::select::{self, Either, Either4};
+use embassy_futures::select::{self, Either3, Either4};
 use embassy_time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -57,6 +57,11 @@ struct PowerStatsResponse<'a> {
 pub struct AdcVoltageResponse {
     pub battery_voltage: u32,
     pub boost_voltage: u32,
+    pub a0: u32,
+    pub a1: u32,
+    pub a2: u32,
+    pub a3: u32,
+    pub a4: u32,
 }
 
 // App properties for the web server
@@ -169,14 +174,29 @@ impl ws::WebSocketCallback for WebsocketHandler {
             let _ = tx.close(Some((1011, "Failed to get power state receiver"))).await;
             return Ok(());
         };
-        let Some(mut out1_receiver) = watch_output(OutputID::Output1) else {
+        let Some(mut out1_receiver) = watch_output(OutputID::OutputD0) else {
             error!("Failed to watch output 1");
             let _ = tx.close(Some((1011, "Failed to watch output 1"))).await;
             return Ok(());
         };
-        let Some(mut out2_receiver) = watch_output(OutputID::Output2) else {
+        let Some(mut out2_receiver) = watch_output(OutputID::OutputD1) else {
             error!("Failed to watch output 2");
             let _ = tx.close(Some((1011, "Failed to watch output 2"))).await;
+            return Ok(());
+        };
+        let Some(mut out3_receiver) = watch_output(OutputID::OutputD2) else {
+            error!("Failed to watch output 3");
+            let _ = tx.close(Some((1011, "Failed to watch output 3"))).await;
+            return Ok(());
+        };
+        let Some(mut out4_receiver) = watch_output(OutputID::OutputD3) else {
+            error!("Failed to watch output 4");
+            let _ = tx.close(Some((1011, "Failed to watch output 4"))).await;
+            return Ok(());
+        };
+        let Some(mut out5_receiver) = watch_output(OutputID::OutputD4) else {
+            error!("Failed to watch output 5");
+            let _ = tx.close(Some((1011, "Failed to watch output 5"))).await;
             return Ok(());
         };
         let Some(mut adc_state_receiver) = ADC_STATE.receiver() else {
@@ -189,18 +209,28 @@ impl ws::WebSocketCallback for WebsocketHandler {
             match select::select4(
                 rx.next_message(&mut buffer),
                 power_state_receiver.changed(),
-                select::select(out1_receiver.changed(), out2_receiver.changed()),
-                adc_state_receiver.changed()
+                adc_state_receiver.changed(),
+                select::select3(
+                    out1_receiver.changed(),
+                    out2_receiver.changed(),
+                    select::select3(
+                        out3_receiver.changed(),
+                        out4_receiver.changed(),
+                        out5_receiver.changed()
+                    )
+                )
             ).await {
                 Either4::First(x) => match x {
                     Ok(ws::Message::Text(data)) => {
-                        // Try to parse the incoming message as a command
                         if let Ok(command) = serde_json::from_str::<WebSocketCommand>(data) {
                             match command {
                                 WebSocketCommand::Digital { id, value } => {
                                     let _ = set_state(match id {
-                                        0 => OutputID::Output1,
-                                        1 => OutputID::Output2,
+                                        0 => OutputID::OutputD0,
+                                        1 => OutputID::OutputD1,
+                                        2 => OutputID::OutputD2,
+                                        3 => OutputID::OutputD3,
+                                        4 => OutputID::OutputD4,
                                         _ => {
                                             error!("Invalid output ID: {}", id);
                                             continue;
@@ -209,38 +239,20 @@ impl ws::WebSocketCallback for WebsocketHandler {
                                 }
                                 WebSocketCommand::Power { action, value } => match action.as_str() {
                                     "boost" => {
-                                        info!(
-                                            "Setting boost converter to: {}",
-                                            if value { "enabled" } else { "disabled" }
-                                        );
-                                    
-                                        // Send command to power controller
-                                        match POWER_CONTROL
-                                            .transact(PowerRequest::EnableBoostConverter(value))
-                                            .await
-                                        {
-                                            PowerResponse::Ok => {
-                                                info!("Boost converter set successfully")
-                                            }
-                                            PowerResponse::Err(_) => {
-                                                info!("Failed to set boost converter state")
-                                            }
+                                        info!("Setting boost converter to: {}", if value { "enabled" } else { "disabled" });
+                                        match POWER_CONTROL.transact(PowerRequest::EnableBoostConverter(value)).await {
+                                            PowerResponse::Ok => info!("Boost converter set successfully"),
+                                            PowerResponse::Err(_) => info!("Failed to set boost converter state"),
                                         };
                                     }
-                                    _ => {
-                                        error!("Unknown power action")
-                                    }
+                                    _ => error!("Unknown power action"),
                                 },
                             }
                         }
                         continue
                     }
-                    Ok(ws::Message::Binary(_)) => {
-                        break Some((1003, "Binary messages not supported"))
-                    },
-                    Ok(ws::Message::Close(_)) => {
-                        break None;
-                    }
+                    Ok(ws::Message::Binary(_)) => break Some((1003, "Binary messages not supported")),
+                    Ok(ws::Message::Close(_)) => break None,
                     Ok(ws::Message::Ping(data)) => tx.send_pong(data).await,
                     Ok(ws::Message::Pong(_)) => continue,
                     Err(err) => {
@@ -252,7 +264,6 @@ impl ws::WebSocketCallback for WebsocketHandler {
                             ws::ReadMessageError::ReservedOpcode(_) => 1003,
                             ws::ReadMessageError::TextIsNotUtf8 => 1007,
                         };
-
                         break Some((code, "Websocket Error"));
                     }
                 },
@@ -260,30 +271,60 @@ impl ws::WebSocketCallback for WebsocketHandler {
                     let power_stats_response = format_power_stats_response(power_state);
                     tx.send_json(OutgoingMessage::PowerStats(power_stats_response)).await
                 }
-                Either4::Third(x) => {
-                    match x {
-                        Either::First(out1_state) => {
+                Either4::Third(adc_state) => {
+                    let adc_response = AdcVoltageResponse {
+                        battery_voltage: adc_state.battery_voltage,
+                        boost_voltage: adc_state.boost_voltage,
+                        a0: adc_state.a0,
+                        a1: adc_state.a1,
+                        a2: adc_state.a2,
+                        a3: adc_state.a3,
+                        a4: adc_state.a4,
+                    };
+                    tx.send_json(OutgoingMessage::AdcVoltage(adc_response)).await
+                }
+                Either4::Fourth(pin_select) => {
+                    match pin_select {
+                        Either3::First(out1_state) => {
                             let pin_state_response = PinStatesResponse {
                                 pin_number: 0,
                                 state: out1_state.to_str(),
                             };
                             tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
                         }
-                        Either::Second(out2_state) => {
+                        Either3::Second(out2_state) => {
                             let pin_state_response = PinStatesResponse {
                                 pin_number: 1,
                                 state: out2_state.to_str(),
                             };
                             tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
                         }
+                        Either3::Third(inner_select) => {
+                            match inner_select {
+                                Either3::First(out3_state) => {
+                                    let pin_state_response = PinStatesResponse {
+                                        pin_number: 2,
+                                        state: out3_state.to_str(),
+                                    };
+                                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                                }
+                                Either3::Second(out4_state) => {
+                                    let pin_state_response = PinStatesResponse {
+                                        pin_number: 3,
+                                        state: out4_state.to_str(),
+                                    };
+                                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                                }
+                                Either3::Third(out5_state) => {
+                                    let pin_state_response = PinStatesResponse {
+                                        pin_number: 4,
+                                        state: out5_state.to_str(),
+                                    };
+                                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                                }
+                            }
+                        }
                     }
-                }
-                Either4::Fourth(adc_state) => {
-                    let adc_response = AdcVoltageResponse {
-                        battery_voltage: adc_state.battery_voltage,
-                        boost_voltage: adc_state.boost_voltage,
-                    };
-                    tx.send_json(OutgoingMessage::AdcVoltage(adc_response)).await
                 }
             }?;
         };

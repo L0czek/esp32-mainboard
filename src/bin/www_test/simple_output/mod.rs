@@ -44,8 +44,11 @@ fn pin_state(pin: &Flex<'_>) -> PinState {
 /// Identifies which output to control
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum OutputID {
-    Output1,
-    Output2,
+    OutputD0,
+    OutputD1,
+    OutputD2,
+    OutputD3,
+    OutputD4,
 }
 
 /// Commands that can be sent to the output task
@@ -56,26 +59,40 @@ enum Command {
 type CommandResult = ();
 
 /// Channels for sending commands to output tasks
-static OUTPUT1_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static OUTPUT2_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static OUTPUT_D0_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static OUTPUT_D1_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static OUTPUT_D2_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static OUTPUT_D3_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static OUTPUT_D4_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
 
 /// Watch channels for pin state (input) notifications
-static OUTPUT1_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static OUTPUT2_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static OUTPUT_D0_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static OUTPUT_D1_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static OUTPUT_D2_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static OUTPUT_D3_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static OUTPUT_D4_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
 
 /// Initialize the simple output module
 pub fn initialize_simple_output(
     spawner: &Spawner,
     d0: impl OutputPin + 'static,
     d1: impl OutputPin + 'static,
+    d2: impl OutputPin + 'static,
+    d3: impl OutputPin + 'static,
+    d4: impl OutputPin + 'static,
 ) {
     // Configure pins as open-drain outputs
     let output1 = new_configured_output(d0);
     let output2 = new_configured_output(d1);
-    
+    let output3 = new_configured_output(d2);
+    let output4 = new_configured_output(d3);
+    let output5 = new_configured_output(d4);
     // Spawn tasks for each output
-    spawner.spawn(output_task(OutputID::Output1, output1)).unwrap();
-    spawner.spawn(output_task(OutputID::Output2, output2)).unwrap();
+    spawner.spawn(output_task(OutputID::OutputD0, output1)).unwrap();
+    spawner.spawn(output_task(OutputID::OutputD1, output2)).unwrap();
+    spawner.spawn(output_task(OutputID::OutputD2, output3)).unwrap();
+    spawner.spawn(output_task(OutputID::OutputD3, output4)).unwrap();
+    spawner.spawn(output_task(OutputID::OutputD4, output5)).unwrap();
 }
 
 /// Configure a pin as an open-drain output
@@ -90,11 +107,14 @@ fn new_configured_output<Pin: OutputPin + 'static>(pin: Pin) -> Flex<'static> {
 }
 
 /// Main task that manages an output pin
-#[embassy_executor::task(pool_size = 2)]
+#[embassy_executor::task(pool_size = 5)]
 async fn output_task(output_id: OutputID, mut pin: Flex<'static>) -> ! {
     let (channel, pin_state_watch) = match output_id {
-        OutputID::Output1 => (&OUTPUT1_CHANNEL, &OUTPUT1_STATE),
-        OutputID::Output2 => (&OUTPUT2_CHANNEL, &OUTPUT2_STATE),
+        OutputID::OutputD0 => (&OUTPUT_D0_CHANNEL, &OUTPUT_D0_STATE),
+        OutputID::OutputD1 => (&OUTPUT_D1_CHANNEL, &OUTPUT_D1_STATE),
+        OutputID::OutputD2 => (&OUTPUT_D2_CHANNEL, &OUTPUT_D2_STATE),
+        OutputID::OutputD3 => (&OUTPUT_D3_CHANNEL, &OUTPUT_D3_STATE),
+        OutputID::OutputD4 => (&OUTPUT_D4_CHANNEL, &OUTPUT_D4_STATE),
     };
     let sender = pin_state_watch.sender();
 
@@ -130,16 +150,22 @@ async fn output_task(output_id: OutputID, mut pin: Flex<'static>) -> ! {
 /// * `bool` - If false, pulls the output low. If true, lets it float.
 pub async fn set_state(output_id: OutputID, state: bool) -> () {
     match output_id {
-        OutputID::Output1 => OUTPUT1_CHANNEL.transact(Command::SetState(state)).await,
-        OutputID::Output2 => OUTPUT2_CHANNEL.transact(Command::SetState(state)).await,
+        OutputID::OutputD0 => OUTPUT_D0_CHANNEL.transact(Command::SetState(state)).await,
+        OutputID::OutputD1 => OUTPUT_D1_CHANNEL.transact(Command::SetState(state)).await,
+        OutputID::OutputD2 => OUTPUT_D2_CHANNEL.transact(Command::SetState(state)).await,
+        OutputID::OutputD3 => OUTPUT_D3_CHANNEL.transact(Command::SetState(state)).await,
+        OutputID::OutputD4 => OUTPUT_D4_CHANNEL.transact(Command::SetState(state)).await,
     }
 }
 
 /// Get a receiver that will be notified when the specified pin's state changes
 pub fn watch_output(id: OutputID) -> Option<watch::Receiver<'static, CriticalSectionRawMutex, PinState, 4>> {
     match id {
-        OutputID::Output1 => OUTPUT1_STATE.receiver(),
-        OutputID::Output2 => OUTPUT2_STATE.receiver(),
+        OutputID::OutputD0 => OUTPUT_D0_STATE.receiver(),
+        OutputID::OutputD1 => OUTPUT_D1_STATE.receiver(),
+        OutputID::OutputD2 => OUTPUT_D2_STATE.receiver(),
+        OutputID::OutputD3 => OUTPUT_D3_STATE.receiver(),
+        OutputID::OutputD4 => OUTPUT_D4_STATE.receiver(),
     }
 }
 
@@ -147,7 +173,10 @@ pub fn watch_output(id: OutputID) -> Option<watch::Receiver<'static, CriticalSec
 /// Note: Use watch_pin_state() to get state changes instead of polling with this function
 pub fn get_output_state(id: OutputID) -> Option<PinState> {
     match id {
-        OutputID::Output1 => OUTPUT1_STATE.try_get(),
-        OutputID::Output2 => OUTPUT2_STATE.try_get(),
+        OutputID::OutputD0 => OUTPUT_D0_STATE.try_get(),
+        OutputID::OutputD1 => OUTPUT_D1_STATE.try_get(),
+        OutputID::OutputD2 => OUTPUT_D2_STATE.try_get(),
+        OutputID::OutputD3 => OUTPUT_D3_STATE.try_get(),
+        OutputID::OutputD4 => OUTPUT_D4_STATE.try_get(),
     }
 }

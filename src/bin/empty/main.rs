@@ -73,6 +73,11 @@ async fn main(spawner: Spawner) {
         calibration,
         board.BatVol,
         board.BoostVol,
+        board.A0,
+        board.A1,
+        board.A2,
+        board.A3,
+        board.A4,
     ));
     let _ = spawner.spawn(log_voltage_changes());
 
