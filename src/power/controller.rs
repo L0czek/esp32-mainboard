@@ -44,7 +44,7 @@ pub struct PowerControllerConfig {
 
 #[bitfield(u8, from = true)]
 #[derive(Clone, Copy, Format)]
-pub struct ExpanderStatus {
+pub struct ExpanderReg {
     #[bits(1)]
     chr_en: u8,
 
@@ -68,6 +68,78 @@ pub struct ExpanderStatus {
 
     #[bits(1)]
     dc_jack_present: u8,
+}
+
+#[derive(Clone, Copy, Format, Debug)]
+pub struct ExpanderStatus {
+    reg: ExpanderReg,
+}
+
+impl ExpanderStatus {
+    // chr_en - active low
+    pub fn set_chr_en(&mut self, enabled: bool) {
+        self.reg.set_chr_en(if enabled { 0 } else { 1 });
+    }
+
+    pub fn chr_en(&self) -> bool {
+        self.reg.chr_en() == 0
+    }
+
+    // chr_otg - active high
+    pub fn set_chr_otg(&mut self, enabled: bool) {
+        self.reg.set_chr_otg(if enabled { 1 } else { 0 });
+    }
+
+    pub fn chr_otg(&self) -> bool {
+        self.reg.chr_otg() != 0
+    }
+
+    // chr_psel - active low
+    pub fn set_chr_psel(&mut self, enabled: bool) {
+        self.reg.set_chr_psel(if enabled { 0 } else { 1 });
+    }
+
+    pub fn chr_psel(&self) -> bool {
+        self.reg.chr_psel() == 0
+    }
+
+    // chr_vbus_enable - active high
+    pub fn set_vbus_enable(&mut self, enabled: bool) {
+        self.reg.set_vbus_enable(if enabled { 1 } else { 0 });
+    }
+
+    pub fn vbus_enable(&self) -> bool {
+        self.reg.vbus_enable() != 0
+    }
+
+    // vbus_flg - active low
+    pub fn vbus_flg(&self) -> bool {
+        self.reg.vbus_flg() == 0
+    }
+
+    // vbus_present - active low
+    pub fn vbus_present(&self) -> bool {
+        self.reg.vbus_present() == 0
+    }
+
+    // dc_jack_present - active low
+    pub fn dc_jack_present(&self) -> bool {
+        self.reg.dc_jack_present() == 0
+    }
+}
+
+impl Into<u8> for ExpanderStatus {
+    fn into(self) -> u8 {
+        self.reg.into()
+    }
+}
+
+impl From<u8> for ExpanderStatus {
+    fn from(value: u8) -> Self {
+        Self {
+            reg: ExpanderReg::from(value),
+        }
+    }
 }
 
 #[derive(Debug, Format, Clone)]
@@ -192,8 +264,8 @@ impl<I2C: I2c> PowerController<I2C> {
 
     fn setup_expander(&mut self) -> PowerControllerResult<(), I2C> {
         // Set chr_otg high by default
-        let mut status = ExpanderStatus::from_bits(0xFF);
-        status.set_chr_otg(1);
+        let mut status = ExpanderStatus::from(0xFF);
+        status.set_chr_otg(true);
         self.expander
             .set(status.into())
             .map_err(PowerControllerError::I2CExpanderError)
@@ -277,8 +349,8 @@ impl<I2C: I2c> PowerController<I2C> {
 
         match mode {
             PowerControllerMode::Passive => {
-                status.set_chr_en(1);
-                status.set_vbus_enable(1);
+                status.set_chr_en(false);
+                status.set_vbus_enable(true);
                 self.expander
                     .set(status.into())
                     .map_err(PowerControllerError::I2CExpanderError)?;
@@ -290,8 +362,8 @@ impl<I2C: I2c> PowerController<I2C> {
                     .map_err(PowerControllerError::I2cBusError)?;
             }
             PowerControllerMode::Charging => {
-                status.set_chr_en(0);
-                status.set_vbus_enable(1);
+                status.set_chr_en(true);
+                status.set_vbus_enable(true);
                 self.expander
                     .set(status.into())
                     .map_err(PowerControllerError::I2CExpanderError)?;
@@ -303,8 +375,8 @@ impl<I2C: I2c> PowerController<I2C> {
                     .map_err(PowerControllerError::I2cBusError)?;
             }
             PowerControllerMode::Otg => {
-                status.set_chr_en(1);
-                status.set_vbus_enable(0);
+                status.set_chr_en(false);
+                status.set_vbus_enable(false);
                 self.expander
                     .set(status.into())
                     .map_err(PowerControllerError::I2CExpanderError)?;

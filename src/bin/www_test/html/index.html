@@ -330,11 +330,6 @@
             return value ? 'Yes' : 'No';
         }
         
-        // Function to format pin states as High/Low
-        function formatPinState(value) {
-            return value ? 'High' : 'Low';
-        }
-        
         // Function to apply color coding to fault indicators
         function applyFaultColorCoding() {
             // Get all fault-related elements
@@ -559,13 +554,13 @@
             // Update the UI with received power stats
             document.getElementById('vbus-status').textContent = data.vbus_status || '';
             document.getElementById('charge-status').textContent = data.charge_status || '';
-            document.getElementById('vbus-present').textContent = formatPinState(data.vbus_present);
-            document.getElementById('vbus-flg').textContent = formatPinState(data.vbus_flg);
-            document.getElementById('dc-jack-present').textContent = formatPinState(data.dc_jack_present);
-            document.getElementById('chr-en').textContent = formatPinState(data.chr_en);
-            document.getElementById('chr-otg').textContent = formatPinState(data.chr_otg);
-            document.getElementById('chr-psel').textContent = formatPinState(data.chr_psel);
-            document.getElementById('vbus-enable').textContent = formatPinState(data.vbus_enable);
+            document.getElementById('vbus-present').textContent = formatBoolean(data.vbus_present);
+            document.getElementById('vbus-flg').textContent = formatBoolean(data.vbus_flg);
+            document.getElementById('dc-jack-present').textContent = formatBoolean(data.dc_jack_present);
+            document.getElementById('chr-en').textContent = formatBoolean(data.chr_en);
+            document.getElementById('chr-otg').textContent = formatBoolean(data.chr_otg);
+            document.getElementById('chr-psel').textContent = formatBoolean(data.chr_psel);
+            document.getElementById('vbus-enable').textContent = formatBoolean(data.vbus_enable);
             document.getElementById('dpm-active').textContent = formatBoolean(data.dpm_active);
             document.getElementById('power-good').textContent = formatBoolean(data.power_good);
             document.getElementById('thermal-regulation').textContent = formatBoolean(data.thermal_regulation_active);

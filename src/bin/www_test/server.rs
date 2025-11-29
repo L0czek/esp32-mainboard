@@ -146,14 +146,14 @@ fn format_power_stats_response<'a>(stats: PowerControllerStats) -> PowerStatsRes
         // Boost converter state
         boost_converter_enabled: stats.boost_enabled,
         // Input status pins
-        vbus_present: stats.expander_status.vbus_present() != 0,
-        vbus_flg: stats.expander_status.vbus_flg() != 0,
-        dc_jack_present: stats.expander_status.dc_jack_present() != 0,
+        vbus_present: stats.expander_status.vbus_present(),
+        vbus_flg: stats.expander_status.vbus_flg(),
+        dc_jack_present: stats.expander_status.dc_jack_present(),
         // Output control pins
-        chr_en: stats.expander_status.chr_en() != 0,
-        chr_otg: stats.expander_status.chr_otg() != 0,
-        chr_psel: stats.expander_status.chr_psel() != 0,
-        vbus_enable: stats.expander_status.vbus_enable() != 0,
+        chr_en: stats.expander_status.chr_en(),
+        chr_otg: stats.expander_status.chr_otg(),
+        chr_psel: stats.expander_status.chr_psel(),
+        vbus_enable: stats.expander_status.vbus_enable(),
     }
 }
 
