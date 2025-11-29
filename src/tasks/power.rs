@@ -1,4 +1,4 @@
-use bq24296m::{ChargeStatus, WatchdogTimer};
+use bq24296m::WatchdogTimer;
 use defmt::{error, info};
 use embassy_futures::select::{select, Either};
 use embassy_time::Timer;
@@ -14,7 +14,6 @@ use crate::{
 };
 
 pub enum PowerRequest {
-    SwitchMode(PowerControllerMode),
     EnableBoostConverter(bool),
     CheckInterrupt,
 }
@@ -40,11 +39,21 @@ fn handle_power_controller_interrupt(
 ) -> Result<(), PowerControllerError<I2cType>> {
     let stats = pctl.read_stats()?;
 
-    //TODO: add charging interrupt handling
-
-    match stats.charger_status.get_charge_status() {
-        ChargeStatus::ChargeDone => pctl.switch_mode(PowerControllerMode::Passive, &stats)?,
-        _ => {}
+    // If VBUS is not present and we are not in OTG mode, enter OTG mode
+    // If VBUS is present and we are in OTG mode, switch to charging mode
+    match pctl.get_mode() {
+        PowerControllerMode::Otg => {
+            if stats.expander_status.vbus_present() {
+                info!("VBUS present, switching to Charging mode");
+                pctl.switch_mode(PowerControllerMode::Charging, &stats)?;
+            }
+        }
+        _ => {
+            if !stats.expander_status.vbus_present() {
+                info!("VBUS not present, switching to OTG mode");
+                pctl.switch_mode(PowerControllerMode::Otg, &stats)?;
+            }
+        }
     }
 
     Ok(())
@@ -56,10 +65,6 @@ fn handle_power_controller_command(
     stats: &crate::power::PowerControllerStats,
 ) -> PowerResponse {
     match command {
-        PowerRequest::SwitchMode(mode) => match pctl.switch_mode(mode, stats) {
-            Ok(()) => PowerResponse::Ok,
-            Err(e) => PowerResponse::Err(e),
-        },
         PowerRequest::EnableBoostConverter(true) => {
             pctl.enable_boost_converter();
             PowerResponse::Ok
@@ -102,10 +107,15 @@ async fn handle_power_controller_impl(
             continue;
         };
 
-        // Set initial charging mode on first successful stats read
+        // Set initial mode based on VBUS presence on first successful stats read
         if !initial_mode_set {
-            if let Err(e) = pctl.switch_mode(PowerControllerMode::Charging, &stats) {
-                error!("Failed to set initial charging mode: {:?}", e);
+            let initial_mode = if stats.expander_status.vbus_present() {
+                PowerControllerMode::Charging
+            } else {
+                PowerControllerMode::Otg
+            };
+            if let Err(e) = pctl.switch_mode(initial_mode, &stats) {
+                error!("Failed to set initial mode: {:?}", e);
                 continue;
             }
             initial_mode_set = true;
