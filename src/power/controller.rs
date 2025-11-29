@@ -250,7 +250,7 @@ impl<I2C: I2c> PowerController<I2C> {
                     .set_high()
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 pins.vbus_enable
-                    .set_low()
+                    .set_high()
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 self.charger
                     .transact(|r: &mut PowerOnConfigurationRegister| {
@@ -264,7 +264,7 @@ impl<I2C: I2c> PowerController<I2C> {
                     .set_low()
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 pins.vbus_enable
-                    .set_low()
+                    .set_high()
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 self.charger
                     .transact(|r: &mut PowerOnConfigurationRegister| {
@@ -278,7 +278,7 @@ impl<I2C: I2c> PowerController<I2C> {
                     .set_high()
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 pins.vbus_enable
-                    .set_high()
+                    .set_low()
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 self.charger
                     .transact(|r: &mut PowerOnConfigurationRegister| {
