@@ -51,6 +51,15 @@ struct PowerStatsResponse<'a> {
     ntc_hot_fault: bool,
     // Boost converter state
     boost_converter_enabled: bool,
+    // Input status pins
+    vbus_present: bool,
+    vbus_flg: bool,
+    dc_jack_present: bool,
+    // Output control pins
+    chr_en: bool,
+    chr_otg: bool,
+    chr_psel: bool,
+    vbus_enable: bool,
 }
 
 #[derive(Serialize)]
@@ -136,6 +145,15 @@ fn format_power_stats_response<'a>(stats: PowerControllerStats) -> PowerStatsRes
         ntc_hot_fault: faults.is_ntc_hot_fault(),
         // Boost converter state
         boost_converter_enabled: stats.boost_enabled,
+        // Input status pins
+        vbus_present: stats.expander_status.vbus_present() != 0,
+        vbus_flg: stats.expander_status.vbus_flg() != 0,
+        dc_jack_present: stats.expander_status.dc_jack_present() != 0,
+        // Output control pins
+        chr_en: stats.expander_status.chr_en() != 0,
+        chr_otg: stats.expander_status.chr_otg() != 0,
+        chr_psel: stats.expander_status.chr_psel() != 0,
+        vbus_enable: stats.expander_status.vbus_enable() != 0,
     }
 }
 

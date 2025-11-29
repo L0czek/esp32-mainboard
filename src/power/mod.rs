@@ -29,6 +29,7 @@ impl<I2C: I2c> Display for PowerControllerError<I2C> {
 impl<I2C: I2c> Format for PowerControllerError<I2C> {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
+            // TODO: Fix defmt formatting for bus_error and expander_err
             PowerControllerError::I2cBusError(bus_error) => {
                 defmt_write!(fmt, "Power Controller error due to I2C bus malfunction")
             }
@@ -39,7 +40,7 @@ impl<I2C: I2c> Format for PowerControllerError<I2C> {
     }
 }
 
-pub type Result<T, I2C> = core::result::Result<T, PowerControllerError<I2C>>;
+pub type PowerControllerResult<T, I2C> = core::result::Result<T, PowerControllerError<I2C>>;
 
 mod controller;
 

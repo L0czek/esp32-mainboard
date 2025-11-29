@@ -43,7 +43,7 @@ fn handle_power_controller_interrupt(
     //TODO: add charging interrupt handling
 
     match stats.charger_status.get_charge_status() {
-        ChargeStatus::ChargeDone => pctl.switch_mode(PowerControllerMode::Passive)?,
+        ChargeStatus::ChargeDone => pctl.switch_mode(PowerControllerMode::Passive, &stats)?,
         _ => {}
     }
 
@@ -53,9 +53,10 @@ fn handle_power_controller_interrupt(
 fn handle_power_controller_command(
     pctl: &mut PowerController<I2cType>,
     command: PowerRequest,
+    stats: &crate::power::PowerControllerStats,
 ) -> PowerResponse {
     match command {
-        PowerRequest::SwitchMode(mode) => match pctl.switch_mode(mode) {
+        PowerRequest::SwitchMode(mode) => match pctl.switch_mode(mode, stats) {
             Ok(()) => PowerResponse::Ok,
             Err(e) => PowerResponse::Err(e),
         },
@@ -84,19 +85,30 @@ async fn handle_power_controller_impl(
     let ping_time = config.i2c_watchdog_timer;
     let mut pctl = PowerController::new(config, io)?;
 
-    pctl.switch_mode(crate::power::PowerControllerMode::Charging)?;
-
     let sleep_time = match ping_time {
         WatchdogTimer::Disabled | WatchdogTimer::Seconds40 => 20,
         WatchdogTimer::Seconds80 => 40,
         WatchdogTimer::Seconds160 => 80,
     };
 
+    let mut initial_mode_set = false;
+
     loop {
-        if let Ok(stats) = pctl.read_stats() {
-            POWER_STATE.sender().send(stats);
+        let stats = if let Ok(stats) = pctl.read_stats() {
+            POWER_STATE.sender().send(stats.clone());
+            stats
         } else {
             error!("Failed to read charger stats");
+            continue;
+        };
+
+        // Set initial charging mode on first successful stats read
+        if !initial_mode_set {
+            if let Err(e) = pctl.switch_mode(PowerControllerMode::Charging, &stats) {
+                error!("Failed to set initial charging mode: {:?}", e);
+                continue;
+            }
+            initial_mode_set = true;
         }
 
         let timeout = Timer::after_secs(sleep_time);
@@ -105,7 +117,7 @@ async fn handle_power_controller_impl(
         let result = select(timeout, command).await;
 
         if let Either::Second(cmd) = result {
-            let response = handle_power_controller_command(&mut pctl, cmd);
+            let response = handle_power_controller_command(&mut pctl, cmd, &stats);
             POWER_CONTROL.send_response(response).await;
         }
 

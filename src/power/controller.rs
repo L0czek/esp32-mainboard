@@ -1,4 +1,4 @@
-use super::{PowerControllerError, Result};
+use super::{PowerControllerError, PowerControllerResult};
 use crate::board::BoostEnPin;
 use bq24296m::{
     BatteryLowVoltageThreshold, BatteryRechargeThreshold, BoostCurrentLimit, BoostHotThreshold,
@@ -6,11 +6,11 @@ use bq24296m::{
     PowerOnConfigurationRegister, StatusRegisters, SystemStatusRegister,
     ThermalRegulationThreshold, WatchdogTimer, BQ24296,
 };
+use bitfields::bitfield;
 use defmt::{debug, Format};
 use embedded_hal::i2c::I2c;
 use esp_hal::gpio::*;
-use pcf857x::{OutputPin as ExpanderOutputPin, Pcf8574};
-use pcf857x::{P0, P1, P3, P4, P5, P6, P7};
+use pcf857x::Pcf8574;
 
 pub struct PowerControllerIO<I2C: I2c> {
     pub charger_i2c: I2C,
@@ -42,11 +42,40 @@ pub struct PowerControllerConfig {
     pub enable_battery_fault_int: bool,
 }
 
+#[bitfield(u8, from = true)]
+#[derive(Clone, Copy, Format)]
+pub struct ExpanderStatus {
+    #[bits(1)]
+    chr_en: u8,
+
+    #[bits(1)]
+    chr_otg: u8,
+
+    #[bits(1)]
+    _unused_P2: u8,
+
+    #[bits(1)]
+    chr_psel: u8,
+
+    #[bits(1)]
+    vbus_flg: u8,
+
+    #[bits(1)]
+    vbus_enable: u8,
+
+    #[bits(1)]
+    vbus_present: u8,
+
+    #[bits(1)]
+    dc_jack_present: u8,
+}
+
 #[derive(Debug, Format, Clone)]
 pub struct PowerControllerStats {
     pub charger_status: SystemStatusRegister,
     pub charger_faults: NewFaultRegister,
     pub boost_enabled: bool,
+    pub expander_status: ExpanderStatus,
 }
 
 impl PowerControllerStats {
@@ -80,6 +109,17 @@ impl PowerControllerStats {
         );
         debug!("  OTG Fault: {}", faults.is_otg_fault());
         debug!("  Watchdog Fault: {}", faults.is_watchdog_fault());
+        
+        debug!("> Expander Status:");
+        debug!("  Inputs:");
+        debug!("    VBUS Present: {}", self.expander_status.vbus_present());
+        debug!("    VBUS Flag: {}", self.expander_status.vbus_flg());
+        debug!("    DC Jack Present: {}", self.expander_status.dc_jack_present());
+        debug!("  Outputs:");
+        debug!("    Charger Enable: {}", self.expander_status.chr_en());
+        debug!("    Charger OTG: {}", self.expander_status.chr_otg());
+        debug!("    Charger PSEL: {}", self.expander_status.chr_psel());
+        debug!("    VBUS Enable: {}", self.expander_status.vbus_enable());
     }
 }
 
@@ -125,18 +165,8 @@ pub struct PowerController<I2C: I2c> {
     boost_converter_enable: Output<'static>,
 }
 
-struct ExpanderIO<'a, I2C: I2c> {
-    chr_en: P0<'a, Pcf8574<I2C>, I2C::Error>,
-    chr_otg: P1<'a, Pcf8574<I2C>, I2C::Error>,
-    chr_psel: P3<'a, Pcf8574<I2C>, I2C::Error>,
-    vbus_flg: P4<'a, Pcf8574<I2C>, I2C::Error>,
-    vbus_enable: P5<'a, Pcf8574<I2C>, I2C::Error>,
-    vbus_present: P6<'a, Pcf8574<I2C>, I2C::Error>,
-    dc_jack_present: P7<'a, Pcf8574<I2C>, I2C::Error>,
-}
-
 impl<I2C: I2c> PowerController<I2C> {
-    pub fn new(config: PowerControllerConfig, io: PowerControllerIO<I2C>) -> Result<Self, I2C> {
+    pub fn new(config: PowerControllerConfig, io: PowerControllerIO<I2C>) -> PowerControllerResult<Self, I2C> {
         let charger = BQ24296::new(io.charger_i2c);
         let address = pcf857x::SlaveAddr::Alternative(true, false, true);
         let expander = Pcf8574::new(io.pcf8574_i2c, address);
@@ -160,15 +190,16 @@ impl<I2C: I2c> PowerController<I2C> {
         Ok(device)
     }
 
-    fn setup_expander(&mut self) -> Result<(), I2C> {
-        let mut pins = self.expander_pins();
-
-        pins.chr_otg
-            .set_high()
+    fn setup_expander(&mut self) -> PowerControllerResult<(), I2C> {
+        // Set chr_otg high by default
+        let mut status = ExpanderStatus::from_bits(0xFF);
+        status.set_chr_otg(1);
+        self.expander
+            .set(status.into())
             .map_err(PowerControllerError::I2CExpanderError)
     }
 
-    fn write_charger_config(&mut self) -> Result<(), I2C> {
+    fn write_charger_config(&mut self) -> PowerControllerResult<(), I2C> {
         self.charger
             .transact(|regs: &mut ConfigurationRegisters| {
                 regs.ISCR.set_hiz_enabled(false);
@@ -236,21 +267,20 @@ impl<I2C: I2c> PowerController<I2C> {
             .map_err(PowerControllerError::I2cBusError)
     }
 
-    pub fn reconfigure(&mut self, f: impl FnOnce(&mut PowerControllerConfig)) -> Result<(), I2C> {
+    pub fn reconfigure(&mut self, f: impl FnOnce(&mut PowerControllerConfig)) -> PowerControllerResult<(), I2C> {
         f(&mut self.config);
         self.write_charger_config()
     }
 
-    pub fn switch_mode(&mut self, mode: PowerControllerMode) -> Result<(), I2C> {
-        let mut pins = self.expander_pins();
+    pub fn switch_mode(&mut self, mode: PowerControllerMode, stats: &PowerControllerStats) -> PowerControllerResult<(), I2C> {
+        let mut status = stats.expander_status;
 
         match mode {
             PowerControllerMode::Passive => {
-                pins.chr_en
-                    .set_high()
-                    .map_err(PowerControllerError::I2CExpanderError)?;
-                pins.vbus_enable
-                    .set_high()
+                status.set_chr_en(1);
+                status.set_vbus_enable(1);
+                self.expander
+                    .set(status.into())
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 self.charger
                     .transact(|r: &mut PowerOnConfigurationRegister| {
@@ -260,11 +290,10 @@ impl<I2C: I2c> PowerController<I2C> {
                     .map_err(PowerControllerError::I2cBusError)?;
             }
             PowerControllerMode::Charging => {
-                pins.chr_en
-                    .set_low()
-                    .map_err(PowerControllerError::I2CExpanderError)?;
-                pins.vbus_enable
-                    .set_high()
+                status.set_chr_en(0);
+                status.set_vbus_enable(1);
+                self.expander
+                    .set(status.into())
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 self.charger
                     .transact(|r: &mut PowerOnConfigurationRegister| {
@@ -274,11 +303,10 @@ impl<I2C: I2c> PowerController<I2C> {
                     .map_err(PowerControllerError::I2cBusError)?;
             }
             PowerControllerMode::Otg => {
-                pins.chr_en
-                    .set_high()
-                    .map_err(PowerControllerError::I2CExpanderError)?;
-                pins.vbus_enable
-                    .set_low()
+                status.set_chr_en(1);
+                status.set_vbus_enable(0);
+                self.expander
+                    .set(status.into())
                     .map_err(PowerControllerError::I2CExpanderError)?;
                 self.charger
                     .transact(|r: &mut PowerOnConfigurationRegister| {
@@ -294,20 +322,35 @@ impl<I2C: I2c> PowerController<I2C> {
         Ok(())
     }
 
-    pub fn read_stats(&mut self) -> Result<PowerControllerStats, I2C> {
+    pub fn read_stats(&mut self) -> PowerControllerResult<PowerControllerStats, I2C> {
         let stats: StatusRegisters = self
             .charger
             .read()
             .map_err(PowerControllerError::I2cBusError)?;
 
+        let expander_status = self.read_expander_status()?;
+
         Ok(PowerControllerStats {
             charger_status: stats.SSR,
             charger_faults: stats.NFR,
             boost_enabled: self.is_boost_converter_enabled(),
+            expander_status,
         })
     }
 
-    pub fn reset_watchdog(&mut self) -> Result<(), I2C> {
+    fn read_expander_status(&mut self) -> PowerControllerResult<ExpanderStatus, I2C> {
+        // Read entire byte from PCF8574
+        // Only read input pins: P4 (vbus_flg), P6 (vbus_present), P7 (dc_jack_present)
+        use pcf857x::PinFlag;
+        let input_pins = PinFlag::P4 | PinFlag::P6 | PinFlag::P7;
+        let byte = self
+            .expander
+            .get(input_pins)
+            .map_err(PowerControllerError::I2CExpanderError)?;
+        Ok(ExpanderStatus::from(byte))
+    }
+
+    pub fn reset_watchdog(&mut self) -> PowerControllerResult<(), I2C> {
         self.charger
             .transact(|r: &mut PowerOnConfigurationRegister| {
                 r.reset_i2c_watchdog();
@@ -331,19 +374,5 @@ impl<I2C: I2c> PowerController<I2C> {
 
     pub fn is_boost_converter_enabled(&self) -> bool {
         self.boost_converter_enable.is_set_high()
-    }
-
-    fn expander_pins(&mut self) -> ExpanderIO<'_, I2C> {
-        let pins = self.expander.split();
-
-        ExpanderIO {
-            chr_en: pins.p0,
-            chr_otg: pins.p1,
-            chr_psel: pins.p3,
-            vbus_flg: pins.p4,
-            vbus_enable: pins.p5,
-            vbus_present: pins.p6,
-            dc_jack_present: pins.p7,
-        }
     }
 }

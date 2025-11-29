@@ -26,7 +26,6 @@ pub async fn handle_ext_interrupt_line(line: GPIO7<'static>) {
             PowerResponse::Err(e) => {
                 error!("Power Controller interrupt check failed with: {:?}", e)
             }
-            _ => {}
         }
     }
 }
