@@ -218,6 +218,8 @@ async fn i2c_scan() -> Vec<u8> {
         if i2c.write(addr, &[]).is_ok() {
             devices.push(addr);
         }
+        // TODO: Why is this required? Don't ask me. Without it the scan fails mysteriously. To be debugged later.
+        embassy_time::Timer::after_millis(1).await;
     }
     
     info!("I2C scan found {} devices", devices.len());
