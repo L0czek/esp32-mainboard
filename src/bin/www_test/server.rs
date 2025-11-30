@@ -1,5 +1,5 @@
 use defmt::{error, info};
-use embassy_futures::select::{self, Either3, Either4};
+use embassy_futures::select::{self, Either, Either3, Either4};
 use embassy_time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -10,7 +10,7 @@ use picoserve::{
     AppBuilder, AppRouter, Router,
 };
 extern crate alloc;
-use mainboard::{board::{POWER_STATE, ADC_STATE}, power::PowerControllerStats};
+use mainboard::{board::{POWER_STATE, ADC_STATE, ADC_BUFFER_DATA}, power::PowerControllerStats};
 use crate::simple_output::{set_state, watch_output};
 use alloc::string::String;
 
@@ -64,13 +64,25 @@ struct PowerStatsResponse<'a> {
 
 #[derive(Serialize)]
 pub struct AdcVoltageResponse {
-    pub battery_voltage: u32,
-    pub boost_voltage: u32,
-    pub a0: u32,
-    pub a1: u32,
-    pub a2: u32,
-    pub a3: u32,
-    pub a4: u32,
+    pub battery_voltage: u16,
+    pub boost_voltage: u16,
+    pub a0: u16,
+    pub a1: u16,
+    pub a2: u16,
+    pub a3: u16,
+    pub a4: u16,
+}
+
+#[derive(Serialize)]
+pub struct AdcBufferResponse {
+    pub sequence: u32,
+    pub battery_voltage: alloc::vec::Vec<u16>,
+    pub boost_voltage: alloc::vec::Vec<u16>,
+    pub a0: alloc::vec::Vec<u16>,
+    pub a1: alloc::vec::Vec<u16>,
+    pub a2: alloc::vec::Vec<u16>,
+    pub a3: alloc::vec::Vec<u16>,
+    pub a4: alloc::vec::Vec<u16>,
 }
 
 // App properties for the web server
@@ -175,6 +187,8 @@ enum OutgoingMessage<'a> {
     PinState(PinStatesResponse<'a>),
     #[serde(rename = "adc_voltage")]
     AdcVoltage(AdcVoltageResponse),
+    #[serde(rename = "adc_buffer")]
+    AdcBuffer(AdcBufferResponse),
 }
 
 struct WebsocketHandler;
@@ -222,23 +236,31 @@ impl ws::WebSocketCallback for WebsocketHandler {
             let _ = tx.close(Some((1011, "Failed to get ADC state receiver"))).await;
             return Ok(());
         };
+        let Ok(mut adc_buffer_subscriber) = ADC_BUFFER_DATA.subscriber() else {
+            error!("Failed to get ADC buffer subscriber");
+            let _ = tx.close(Some((1011, "Failed to get ADC buffer subscriber"))).await;
+            return Ok(());
+        };
 
         let close_reason = loop {
-            match select::select4(
-                rx.next_message(&mut buffer),
-                power_state_receiver.changed(),
-                adc_state_receiver.changed(),
-                select::select3(
-                    out1_receiver.changed(),
-                    out2_receiver.changed(),
+            match select::select(
+                select::select4(
+                    rx.next_message(&mut buffer),
+                    power_state_receiver.changed(),
+                    adc_state_receiver.changed(),
                     select::select3(
-                        out3_receiver.changed(),
-                        out4_receiver.changed(),
-                        out5_receiver.changed()
+                        out1_receiver.changed(),
+                        out2_receiver.changed(),
+                        select::select3(
+                            out3_receiver.changed(),
+                            out4_receiver.changed(),
+                            out5_receiver.changed()
+                        )
                     )
-                )
+                ),
+                adc_buffer_subscriber.next_message_pure()
             ).await {
-                Either4::First(x) => match x {
+                Either::First(Either4::First(x)) => match x {
                     Ok(ws::Message::Text(data)) => {
                         if let Ok(command) = serde_json::from_str::<WebSocketCommand>(data) {
                             match command {
@@ -285,11 +307,11 @@ impl ws::WebSocketCallback for WebsocketHandler {
                         break Some((code, "Websocket Error"));
                     }
                 },
-                Either4::Second(power_state) => {
+                Either::First(Either4::Second(power_state)) => {
                     let power_stats_response = format_power_stats_response(power_state);
                     tx.send_json(OutgoingMessage::PowerStats(power_stats_response)).await
                 }
-                Either4::Third(adc_state) => {
+                Either::First(Either4::Third(adc_state)) => {
                     let adc_response = AdcVoltageResponse {
                         battery_voltage: adc_state.battery_voltage,
                         boost_voltage: adc_state.boost_voltage,
@@ -301,7 +323,7 @@ impl ws::WebSocketCallback for WebsocketHandler {
                     };
                     tx.send_json(OutgoingMessage::AdcVoltage(adc_response)).await
                 }
-                Either4::Fourth(pin_select) => {
+                Either::First(Either4::Fourth(pin_select)) => {
                     match pin_select {
                         Either3::First(out1_state) => {
                             let pin_state_response = PinStatesResponse {
@@ -343,6 +365,19 @@ impl ws::WebSocketCallback for WebsocketHandler {
                             }
                         }
                     }
+                }
+                Either::Second(buffer_data) => {
+                    let buffer_response = AdcBufferResponse {
+                        sequence: buffer_data.sequence,
+                        battery_voltage: buffer_data.battery_voltage.to_vec(),
+                        boost_voltage: buffer_data.boost_voltage.to_vec(),
+                        a0: buffer_data.a0.to_vec(),
+                        a1: buffer_data.a1.to_vec(),
+                        a2: buffer_data.a2.to_vec(),
+                        a3: buffer_data.a3.to_vec(),
+                        a4: buffer_data.a4.to_vec(),
+                    };
+                    tx.send_json(OutgoingMessage::AdcBuffer(buffer_response)).await
                 }
             }?;
         };

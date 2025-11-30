@@ -77,6 +77,21 @@
             border-bottom: 1px solid #e1e4e8;
             margin-bottom: 8px;
         }
+        .analog-row {
+            align-items: center;
+        }
+        .analog-value {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .analog-chart {
+            width: 180px;
+            height: 60px;
+            border: 1px solid #d0d7de;
+            border-radius: 4px;
+            background-color: #fff;
+        }
         .stats-label {
             font-weight: bold;
         }
@@ -179,25 +194,40 @@
     <section class="control-panel">
         <h2>Analog Inputs (A0-A4)</h2>
         <div class="stats-panel">
-            <div class="stats-row">
+            <div class="stats-row analog-row">
                 <span class="stats-label">A0:</span>
-                <span id="a0-value" class="stats-value">Loading...</span>
+                <div class="analog-value">
+                    <span id="a0-value" class="stats-value">Loading...</span>
+                    <canvas id="a0-chart" class="analog-chart" width="180" height="60"></canvas>
+                </div>
             </div>
-            <div class="stats-row">
+            <div class="stats-row analog-row">
                 <span class="stats-label">A1:</span>
-                <span id="a1-value" class="stats-value">Loading...</span>
+                <div class="analog-value">
+                    <span id="a1-value" class="stats-value">Loading...</span>
+                    <canvas id="a1-chart" class="analog-chart" width="180" height="60"></canvas>
+                </div>
             </div>
-            <div class="stats-row">
+            <div class="stats-row analog-row">
                 <span class="stats-label">A2:</span>
-                <span id="a2-value" class="stats-value">Loading...</span>
+                <div class="analog-value">
+                    <span id="a2-value" class="stats-value">Loading...</span>
+                    <canvas id="a2-chart" class="analog-chart" width="180" height="60"></canvas>
+                </div>
             </div>
-            <div class="stats-row">
+            <div class="stats-row analog-row">
                 <span class="stats-label">A3:</span>
-                <span id="a3-value" class="stats-value">Loading...</span>
+                <div class="analog-value">
+                    <span id="a3-value" class="stats-value">Loading...</span>
+                    <canvas id="a3-chart" class="analog-chart" width="180" height="60"></canvas>
+                </div>
             </div>
-            <div class="stats-row">
+            <div class="stats-row analog-row">
                 <span class="stats-label">A4:</span>
-                <span id="a4-value" class="stats-value">Loading...</span>
+                <div class="analog-value">
+                    <span id="a4-value" class="stats-value">Loading...</span>
+                    <canvas id="a4-chart" class="analog-chart" width="180" height="60"></canvas>
+                </div>
             </div>
         </div>
     </section>
@@ -207,13 +237,19 @@
         
         <div class="stats-panel">
             <h3>Voltage Readings</h3>
-            <div class="stats-row">
+            <div class="stats-row analog-row">
                 <span class="stats-label">Battery Voltage:</span>
-                <span id="battery-voltage" class="stats-value">Loading...</span>
+                <div class="analog-value">
+                    <span id="battery-voltage" class="stats-value">Loading...</span>
+                    <canvas id="battery-voltage-chart" class="analog-chart" width="180" height="60"></canvas>
+                </div>
             </div>
-            <div class="stats-row">
+            <div class="stats-row analog-row">
                 <span class="stats-label">Boost Voltage:</span>
-                <span id="boost-voltage" class="stats-value">Loading...</span>
+                <div class="analog-value">
+                    <span id="boost-voltage" class="stats-value">Loading...</span>
+                    <canvas id="boost-voltage-chart" class="analog-chart" width="180" height="60"></canvas>
+                </div>
             </div>
         </div>
 
@@ -324,6 +360,29 @@
     <script>
         // WebSocket connection
         let socket = null;
+        const analogSparklineColor = '#007bff';
+        const analogSparklineBaseline = '#d0d7de';
+        const MAX_GRAPH_POINTS = 250 * 5;
+
+        const analogBufferConfig = {
+            battery_voltage: { canvasId: 'battery-voltage-chart' },
+            boost_voltage: { canvasId: 'boost-voltage-chart' },
+            a0: { canvasId: 'a0-chart' },
+            a1: { canvasId: 'a1-chart' },
+            a2: { canvasId: 'a2-chart' },
+            a3: { canvasId: 'a3-chart' },
+            a4: { canvasId: 'a4-chart' },
+        };
+
+        const analogChannels = Object.keys(analogBufferConfig);
+
+        const analogGraphState = Object.fromEntries(
+            Object.keys(analogBufferConfig).map(channel => [channel, {
+                samples: [],
+                lastSequence: null,
+                lastBufferLength: 0,
+            }])
+        );
         
         // Function to format boolean values with better readability and color
         function formatBoolean(value) {
@@ -373,6 +432,127 @@
             }
         }
         
+        function drawAnalogSparkline(canvasId, samples) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) {
+                return;
+            }
+
+            const ctx = canvas.getContext('2d');
+            const { width, height } = canvas;
+            ctx.clearRect(0, 0, width, height);
+
+            const validSamples = samples.filter(value => value != null);
+            if (validSamples.length === 0) {
+                ctx.fillStyle = '#999';
+                ctx.font = '12px sans-serif';
+                ctx.fillText('No data', 10, height / 2);
+                return;
+            }
+
+            const min = Math.min(...validSamples);
+            const max = Math.max(...validSamples);
+            const range = max - min || 1;
+            const padding = 6;
+
+            ctx.strokeStyle = analogSparklineBaseline;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, height - padding);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.strokeStyle = analogSparklineColor;
+            ctx.lineWidth = 2;
+
+            const pointCount = samples.length;
+            let moveToNext = true;
+            for (let i = 0; i < pointCount; i++) {
+                const sample = samples[i];
+                const denominator = Math.max(pointCount - 1, 1);
+                const x = padding + (i / denominator) * (width - padding * 2);
+
+                if (sample == null) {
+                    moveToNext = true;
+                    continue;
+                }
+
+                const normalized = (sample - min) / range;
+                const y = padding + (1 - normalized) * (height - padding * 2);
+                if (moveToNext) {
+                    ctx.moveTo(x, y);
+                    moveToNext = false;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+        }
+
+        function appendAnalogSamples(channel, sequence, rawSamples) {
+            const state = analogGraphState[channel];
+            const config = analogBufferConfig[channel];
+            if (!state || !config) {
+                return;
+            }
+
+            if (state.lastSequence !== null) {
+                if (sequence < state.lastSequence) {
+                    state.samples = [];
+                    state.lastSequence = null;
+                    state.lastBufferLength = 0;
+                } else if (sequence > state.lastSequence + 1 && state.samples.length > 0) {
+                    const missingSequences = sequence - state.lastSequence - 1;
+                    const gapLength = Math.max(state.lastBufferLength, 0);
+                    if (gapLength > 0) {
+                        const totalGapSamples = gapLength * missingSequences;
+                        for (let i = 0; i < totalGapSamples; i++) {
+                            state.samples.push(null);
+                        }
+                    } else {
+                        state.samples.push(null);
+                    }
+                }
+            }
+
+            const samples = Array.isArray(rawSamples) ? rawSamples : [];
+            for (let i = 0; i < samples.length; i++) {
+                state.samples.push(samples[i] / 1000);
+            }
+
+            state.lastSequence = sequence;
+            if (samples.length > 0) {
+                state.lastBufferLength = samples.length;
+            }
+
+            while (state.samples.length > MAX_GRAPH_POINTS) {
+                state.samples.shift();
+            }
+
+            const sampleCount = state.samples.length;
+            let displaySamples;
+            if (sampleCount >= MAX_GRAPH_POINTS) {
+                displaySamples = state.samples.slice(sampleCount - MAX_GRAPH_POINTS);
+            } else {
+                const paddingLength = MAX_GRAPH_POINTS - sampleCount;
+                displaySamples = new Array(paddingLength).fill(null).concat(state.samples);
+            }
+
+            drawAnalogSparkline(config.canvasId, displaySamples);
+        }
+
+        function updateAnalogInputGraphs(buffer) {
+            if (!buffer) {
+                return;
+            }
+
+            const sequence = buffer.sequence ?? 0;
+            analogChannels.forEach(channel => {
+                appendAnalogSamples(channel, sequence, buffer[channel]);
+            });
+        }
+
 
         
         // Function to send digital command
@@ -539,6 +719,10 @@
                             break;
                         case 'adc_voltage':
                             updateVoltageUI(data);
+                            break;
+                        case 'adc_buffer':
+                            updateAnalogInputGraphs(data);
+                            console.log('ADC Buffer received - Sequence:', data.sequence);
                             break;
                         default:
                             console.warn('Unknown message type:', data.type, data);

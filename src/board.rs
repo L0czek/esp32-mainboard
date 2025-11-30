@@ -14,7 +14,7 @@ use crate::{
 };
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::watch;
+use embassy_sync::{pubsub::PubSubChannel, watch};
 
 pub type GlobalIntPin = GPIO7<'static>;
 pub type BoostEnPin = GPIO15<'static>;
@@ -137,3 +137,8 @@ pub static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerSta
 // ADC state management
 pub static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = 
     watch::Watch::new();
+
+// ADC buffer data pubsub channel (for full recorded buffers)
+use crate::tasks::AdcBufferData;
+pub static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> = 
+    PubSubChannel::new();

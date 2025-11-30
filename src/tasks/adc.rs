@@ -5,17 +5,32 @@ use esp_hal::{
     peripherals::*,
 };
 
-use crate::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin, ADC_STATE};
+use crate::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin, ADC_BUFFER_DATA, ADC_STATE};
+
+const ADC_BUFFER_SIZE: usize = 50;
+const ADC_SAMPLE_INTERVAL_MS: u64 = 5;
 
 #[derive(Debug, Format, Clone)]
 pub struct AdcState {
-    pub battery_voltage: u32,  // in mV
-    pub boost_voltage: u32,    // in mV
-    pub a0: u32,
-    pub a1: u32,
-    pub a2: u32,
-    pub a3: u32,
-    pub a4: u32,
+    pub battery_voltage: u16,  // in mV
+    pub boost_voltage: u16,    // in mV
+    pub a0: u16,
+    pub a1: u16,
+    pub a2: u16,
+    pub a3: u16,
+    pub a4: u16,
+}
+
+#[derive(Debug, Format, Clone)]
+pub struct AdcBufferData {
+    pub sequence: u32,
+    pub battery_voltage: [u16; ADC_BUFFER_SIZE],  // in mV
+    pub boost_voltage: [u16; ADC_BUFFER_SIZE],    // in mV
+    pub a0: [u16; ADC_BUFFER_SIZE],
+    pub a1: [u16; ADC_BUFFER_SIZE],
+    pub a2: [u16; ADC_BUFFER_SIZE],
+    pub a3: [u16; ADC_BUFFER_SIZE],
+    pub a4: [u16; ADC_BUFFER_SIZE],
 }
 
 pub struct VoltageMonitorCalibrationConfig {
@@ -84,42 +99,66 @@ pub async fn monitor_voltages(
         esp_hal::analog::adc::Attenuation::_11dB,
     );
 
-    let mut adc = Adc::new(instance, config);
+    let mut adc = Adc::new(instance, config).into_async();
+
+    let adc_state_sender = ADC_STATE.sender();
+    let publisher = ADC_BUFFER_DATA.publisher().unwrap();
+    let mut sequence: u32 = 0;
 
     loop {
-        let bat_v = nb::block!(adc.read_oneshot(&mut adc_bat_pin)).unwrap() as u32
-            * calibration.battery_voltage_calibration
-            / 1000;
-        let boost_v = nb::block!(adc.read_oneshot(&mut adc_boost_pin)).unwrap() as u32
-            * calibration.boost_voltage_calibration
-            / 1000;
+        let mut buffer = AdcBufferData {
+            sequence,
+            battery_voltage: [0; ADC_BUFFER_SIZE],
+            boost_voltage: [0; ADC_BUFFER_SIZE],
+            a0: [0; ADC_BUFFER_SIZE],
+            a1: [0; ADC_BUFFER_SIZE],
+            a2: [0; ADC_BUFFER_SIZE],
+            a3: [0; ADC_BUFFER_SIZE],
+            a4: [0; ADC_BUFFER_SIZE],
+        };
 
-        let a0 = nb::block!(adc.read_oneshot(&mut adc_a0_pin)).unwrap() as u32
-            * calibration.a0_calibration
-            / 1000;
-        let a1 = nb::block!(adc.read_oneshot(&mut adc_a1_pin)).unwrap() as u32
-            * calibration.a1_calibration
-            / 1000;
-        let a2 = nb::block!(adc.read_oneshot(&mut adc_a2_pin)).unwrap() as u32
-            * calibration.a2_calibration
-            / 1000;
-        let a3 = nb::block!(adc.read_oneshot(&mut adc_a3_pin)).unwrap() as u32
-            * calibration.a3_calibration
-            / 1000;
-        let a4 = nb::block!(adc.read_oneshot(&mut adc_a4_pin)).unwrap() as u32
-            * calibration.a4_calibration
-            / 1000;
+        // Collect 100 samples at 10ms intervals
+        for i in 0..ADC_BUFFER_SIZE {
+            buffer.battery_voltage[i] = ((adc.read_oneshot(&mut adc_bat_pin).await as u32)
+                * calibration.battery_voltage_calibration
+                / 1000) as u16;
+            buffer.boost_voltage[i] = ((adc.read_oneshot(&mut adc_boost_pin).await as u32)
+                * calibration.boost_voltage_calibration
+                / 1000) as u16;
+            buffer.a0[i] = ((adc.read_oneshot(&mut adc_a0_pin).await as u32)
+                * calibration.a0_calibration
+                / 1000) as u16;
+            buffer.a1[i] = ((adc.read_oneshot(&mut adc_a1_pin).await as u32)
+                * calibration.a1_calibration
+                / 1000) as u16;
+            buffer.a2[i] = ((adc.read_oneshot(&mut adc_a2_pin).await as u32)
+                * calibration.a2_calibration
+                / 1000) as u16;
+            buffer.a3[i] = ((adc.read_oneshot(&mut adc_a3_pin).await as u32)
+                * calibration.a3_calibration
+                / 1000) as u16;
+            buffer.a4[i] = ((adc.read_oneshot(&mut adc_a4_pin).await as u32)
+                * calibration.a4_calibration
+                / 1000) as u16;
 
-        ADC_STATE.sender().send(AdcState {
-            battery_voltage: bat_v,
-            boost_voltage: boost_v,
-            a0,
-            a1,
-            a2,
-            a3,
-            a4,
+            Timer::after_millis(ADC_SAMPLE_INTERVAL_MS).await;
+        }
+
+        // Send the last sample from the buffer as the current state
+        let last_idx = ADC_BUFFER_SIZE - 1;
+        adc_state_sender.send(AdcState {
+            battery_voltage: buffer.battery_voltage[last_idx],
+            boost_voltage: buffer.boost_voltage[last_idx],
+            a0: buffer.a0[last_idx],
+            a1: buffer.a1[last_idx],
+            a2: buffer.a2[last_idx],
+            a3: buffer.a3[last_idx],
+            a4: buffer.a4[last_idx],
         });
 
-        Timer::after_secs(1).await;
+        // Publish full buffer data
+        publisher.publish_immediate(buffer);
+        
+        sequence = sequence.wrapping_add(1);
     }
 }
