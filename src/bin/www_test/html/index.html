@@ -135,6 +135,31 @@
             color: #c62828;
             border: 2px solid #c62828;
         }
+        .i2c-cell {
+            padding: 4px 2px;
+            text-align: center;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            background-color: #f9f9f9;
+            cursor: default;
+            font-size: 9px;
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+        .i2c-cell.detected {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .i2c-cell.detected:hover {
+            background-color: #45a049;
+        }
+        .i2c-cell.header {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -228,6 +253,47 @@
                     <span id="a4-value" class="stats-value">Loading...</span>
                     <canvas id="a4-chart" class="analog-chart" width="180" height="60"></canvas>
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="control-panel">
+        <h2>I2C</h2>
+        
+        <div style="margin-bottom: 20px;">
+            <button class="button" onclick="scanI2C()" style="width: 100%;">Scan I2C Bus</button>
+        </div>
+        
+        <div class="stats-panel">
+            <h3>Detected Devices</h3>
+            <div id="i2c-scan-grid" style="display: grid; grid-template-columns: repeat(17, minmax(0, 1fr)); gap: 2px; font-family: monospace; font-size: 10px; margin-top: 10px; max-width: 100%; overflow-x: auto;">
+                <!-- Grid will be populated dynamically -->
+            </div>
+            <div id="i2c-scan-status" style="margin-top: 10px; font-style: italic; color: #666;">Click "Scan I2C Bus" to detect devices</div>
+        </div>
+        
+        <div class="stats-panel" style="margin-top: 15px;">
+            <h3>Read/Write Register</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Device Address</label>
+                    <input type="text" id="i2c-address" placeholder="0x20" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Register</label>
+                    <input type="text" id="i2c-register" placeholder="0x00" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Value (Write)</label>
+                    <input type="text" id="i2c-value" placeholder="0xFF" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+            </div>
+            <div class="button-group" style="gap: 10px;">
+                <button class="button" onclick="readI2C()" style="flex: 1;">Read</button>
+                <button class="button" onclick="writeI2C()" style="flex: 1; background-color: #ff9800;">Write</button>
+            </div>
+            <div id="i2c-result" style="margin-top: 15px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; font-family: monospace; min-height: 40px;">
+                <div style="color: #666; font-style: italic;">Results will appear here</div>
             </div>
         </div>
     </section>
@@ -656,6 +722,207 @@
                 toggleButton.classList.remove('off');
         }
         
+        // I2C Functions
+        function scanI2C() {
+            const statusElement = document.getElementById('i2c-scan-status');
+            statusElement.textContent = 'Scanning I2C bus...';
+            statusElement.style.color = '#007bff';
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                statusElement.textContent = 'Error: Not connected to server';
+                statusElement.style.color = '#dc3545';
+                return;
+            }
+            
+            const command = { type: 'i2c_scan' };
+            socket.send(JSON.stringify(command));
+        }
+        
+        function readI2C() {
+            const addressInput = document.getElementById('i2c-address').value.trim();
+            const registerInput = document.getElementById('i2c-register').value.trim();
+            const resultDiv = document.getElementById('i2c-result');
+            
+            if (!addressInput || !registerInput) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Please enter both address and register</div>';
+                return;
+            }
+            
+            const address = parseHexValue(addressInput);
+            const register = parseHexValue(registerInput);
+            
+            if (address === null || register === null || address > 0x7F || register > 0xFF) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Invalid address or register (use hex like 0x20 or decimal)</div>';
+                return;
+            }
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Error: Not connected to server</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div style="color: #007bff;">Reading...</div>';
+            
+            const command = {
+                type: 'i2c_read',
+                address: address,
+                register: register
+            };
+            socket.send(JSON.stringify(command));
+        }
+        
+        function writeI2C() {
+            const addressInput = document.getElementById('i2c-address').value.trim();
+            const registerInput = document.getElementById('i2c-register').value.trim();
+            const valueInput = document.getElementById('i2c-value').value.trim();
+            const resultDiv = document.getElementById('i2c-result');
+            
+            if (!addressInput || !registerInput || !valueInput) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Please enter address, register, and value</div>';
+                return;
+            }
+            
+            const address = parseHexValue(addressInput);
+            const register = parseHexValue(registerInput);
+            const value = parseHexValue(valueInput);
+            
+            if (address === null || register === null || value === null || address > 0x7F || register > 0xFF || value > 0xFF) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Invalid address, register, or value (use hex like 0x20 or decimal)</div>';
+                return;
+            }
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Error: Not connected to server</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div style="color: #007bff;">Writing...</div>';
+            
+            const command = {
+                type: 'i2c_write',
+                address: address,
+                register: register,
+                value: value
+            };
+            socket.send(JSON.stringify(command));
+        }
+        
+        function parseHexValue(str) {
+            str = str.trim();
+            if (str.startsWith('0x') || str.startsWith('0X')) {
+                const val = parseInt(str.substring(2), 16);
+                return isNaN(val) ? null : val;
+            }
+            const val = parseInt(str, 10);
+            return isNaN(val) ? null : val;
+        }
+        
+        function renderI2CGrid(devices) {
+            const grid = document.getElementById('i2c-scan-grid');
+            const statusElement = document.getElementById('i2c-scan-status');
+            grid.innerHTML = '';
+            
+            // Add column headers (0-F)
+            const headerCell = document.createElement('div');
+            headerCell.className = 'i2c-cell header';
+            headerCell.textContent = '';
+            grid.appendChild(headerCell);
+            
+            for (let col = 0; col < 16; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'i2c-cell header';
+                cell.textContent = col.toString(16).toUpperCase();
+                grid.appendChild(cell);
+            }
+            
+            // Add rows (0x00 to 0x70 in steps of 0x10)
+            for (let row = 0; row <= 0x70; row += 0x10) {
+                // Row header
+                const rowHeader = document.createElement('div');
+                rowHeader.className = 'i2c-cell header';
+                rowHeader.textContent = (row >> 4).toString(16).toUpperCase() + '0';
+                grid.appendChild(rowHeader);
+                
+                // Row cells
+                for (let col = 0; col < 16; col++) {
+                    const address = row + col;
+                    const cell = document.createElement('div');
+                    cell.className = 'i2c-cell';
+                    
+                    // Addresses 0x00-0x02 and 0x78-0x7F are not scanned
+                    const isInScanRange = address >= 0x03 && address <= 0x77;
+                    
+                    if (devices.includes(address)) {
+                        cell.classList.add('detected');
+                        cell.textContent = address.toString(16).toUpperCase().padStart(2, '0');
+                        cell.title = 'Device detected at 0x' + address.toString(16).toUpperCase().padStart(2, '0');
+                        cell.onclick = () => selectI2CDevice(address);
+                    } else if (!isInScanRange) {
+                        cell.textContent = '';
+                        cell.style.backgroundColor = '#e8e8e8';
+                        cell.title = 'Address 0x' + address.toString(16).toUpperCase().padStart(2, '0') + ' (not scanned)';
+                    } else {
+                        cell.textContent = '--';
+                        cell.title = 'No device at 0x' + address.toString(16).toUpperCase().padStart(2, '0');
+                    }
+                    
+                    grid.appendChild(cell);
+                }
+            }
+            
+            statusElement.textContent = `Scan complete: ${devices.length} device(s) found`;
+            statusElement.style.color = '#28a745';
+        }
+        
+        function selectI2CDevice(address) {
+            document.getElementById('i2c-address').value = '0x' + address.toString(16).toUpperCase().padStart(2, '0');
+            document.getElementById('i2c-result').innerHTML = '<div style="color: #666; font-style: italic;">Device 0x' + 
+                address.toString(16).toUpperCase().padStart(2, '0') + ' selected. Enter register to read/write.</div>';
+        }
+        
+        function handleI2CReadResult(data) {
+            const resultDiv = document.getElementById('i2c-result');
+            if (data.success) {
+                resultDiv.innerHTML = `<div style="color: #28a745;">
+                    <strong>Read Success</strong><br>
+                    Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
+                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}<br>
+                    Value: 0x${data.value.toString(16).toUpperCase().padStart(2, '0')} (${data.value})
+                </div>`;
+            } else {
+                resultDiv.innerHTML = `<div style="color: #dc3545;">
+                    <strong>Read Failed</strong><br>
+                    Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
+                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}<br>
+                    Error: Communication failed
+                </div>`;
+            }
+        }
+        
+        function handleI2CWriteResult(data) {
+            const resultDiv = document.getElementById('i2c-result');
+            if (data.success) {
+                resultDiv.innerHTML = `<div style="color: #28a745;">
+                    <strong>Write Success</strong><br>
+                    Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
+                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}
+                </div>`;
+            } else {
+                resultDiv.innerHTML = `<div style="color: #dc3545;">
+                    <strong>Write Failed</strong><br>
+                    Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
+                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}<br>
+                    Error: Communication failed
+                </div>`;
+            }
+        }
+        
+        function handleI2CError(data) {
+            const resultDiv = document.getElementById('i2c-result');
+            resultDiv.innerHTML = `<div style="color: #dc3545;">
+                <strong>Error:</strong> ${data.message}
+            </div>`;
+        }
 
         // Initialize WebSocket connection
         function initWebSocket() {
@@ -724,6 +991,18 @@
                             updateAnalogInputGraphs(data);
                             console.log('ADC Buffer received - Sequence:', data.sequence);
                             break;
+                        case 'i2c_scan_result':
+                            renderI2CGrid(data.devices);
+                            break;
+                        case 'i2c_read_result':
+                            handleI2CReadResult(data);
+                            break;
+                        case 'i2c_write_result':
+                            handleI2CWriteResult(data);
+                            break;
+                        case 'error':
+                            handleI2CError(data);
+                            break;
                         default:
                             console.warn('Unknown message type:', data.type, data);
                     }
@@ -788,7 +1067,11 @@
         }
         
         // Initialize WebSocket when the page loads
-        document.addEventListener('DOMContentLoaded', initWebSocket);
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize I2C grid with empty state
+            renderI2CGrid([]);
+            initWebSocket();
+        });
     </script>
 </body>
 </html>

@@ -13,6 +13,7 @@ extern crate alloc;
 use mainboard::{board::{POWER_STATE, ADC_STATE, ADC_BUFFER_DATA}, power::PowerControllerStats};
 use crate::simple_output::{set_state, watch_output};
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::wifi::WifiResources;
 use crate::{
@@ -176,6 +177,12 @@ enum WebSocketCommand {
     Digital { id: u8, value: u8 },
     #[serde(rename = "power")]
     Power { action: String, value: bool },
+    #[serde(rename = "i2c_scan")]
+    I2cScan,
+    #[serde(rename = "i2c_read")]
+    I2cRead { address: u8, register: u8 },
+    #[serde(rename = "i2c_write")]
+    I2cWrite { address: u8, register: u8, value: u8 },
 }
 
 #[derive(Serialize)]
@@ -189,6 +196,65 @@ enum OutgoingMessage<'a> {
     AdcVoltage(AdcVoltageResponse),
     #[serde(rename = "adc_buffer")]
     AdcBuffer(AdcBufferResponse),
+    #[serde(rename = "i2c_scan_result")]
+    I2cScanResult { devices: alloc::vec::Vec<u8> },
+    #[serde(rename = "i2c_read_result")]
+    I2cReadResult { address: u8, register: u8, value: u8, success: bool },
+    #[serde(rename = "i2c_write_result")]
+    I2cWriteResult { address: u8, register: u8, success: bool },
+    #[serde(rename = "error")]
+    Error { message: String },
+}
+
+// I2C helper functions
+async fn i2c_scan() -> Vec<u8> {
+    use embedded_hal::i2c::I2c as I2cTrait;
+    let mut i2c = mainboard::board::acquire_i2c_bus();
+    let mut devices = Vec::new();
+    
+    // Scan I2C address range (0x03 to 0x77)
+    for addr in 0x03..=0x77 {
+        // Try to write empty data to detect device presence
+        if i2c.write(addr, &[]).is_ok() {
+            devices.push(addr);
+        }
+    }
+    
+    info!("I2C scan found {} devices", devices.len());
+    devices
+}
+
+async fn i2c_read(address: u8, register: u8) -> Result<u8, ()> {
+    use embedded_hal::i2c::I2c as I2cTrait;
+    let mut i2c = mainboard::board::acquire_i2c_bus();
+    let mut buffer = [0u8; 1];
+    
+    match i2c.write_read(address, &[register], &mut buffer) {
+        Ok(_) => {
+            info!("I2C read: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, buffer[0]);
+            Ok(buffer[0])
+        }
+        Err(_) => {
+            error!("I2C read failed: addr=0x{:02X}, reg=0x{:02X}", address, register);
+            Err(())
+        }
+    }
+}
+
+async fn i2c_write(address: u8, register: u8, value: u8) -> Result<(), ()> {
+    use embedded_hal::i2c::I2c as I2cTrait;
+    let mut i2c = mainboard::board::acquire_i2c_bus();
+    
+    match i2c.write(address, &[register, value]) {
+        Ok(_) => {
+            info!("I2C write: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, value);
+            Ok(())
+        }
+        Err(_) => {
+            error!("I2C write failed: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, value);
+            Err(())
+        }
+    }
 }
 
 struct WebsocketHandler;
@@ -287,6 +353,41 @@ impl ws::WebSocketCallback for WebsocketHandler {
                                     }
                                     _ => error!("Unknown power action"),
                                 },
+                                WebSocketCommand::I2cScan => {
+                                    info!("Starting I2C scan");
+                                    let devices = i2c_scan().await;
+                                    let _ = tx.send_json(OutgoingMessage::I2cScanResult { devices }).await;
+                                }
+                                WebSocketCommand::I2cRead { address, register } => {
+                                    info!("I2C read request: addr=0x{:02X}, reg=0x{:02X}", address, register);
+                                    match i2c_read(address, register).await {
+                                        Ok(value) => {
+                                            let _ = tx.send_json(OutgoingMessage::I2cReadResult { 
+                                                address, 
+                                                register, 
+                                                value, 
+                                                success: true 
+                                            }).await;
+                                        }
+                                        Err(_) => {
+                                            let _ = tx.send_json(OutgoingMessage::I2cReadResult { 
+                                                address, 
+                                                register, 
+                                                value: 0, 
+                                                success: false 
+                                            }).await;
+                                        }
+                                    }
+                                }
+                                WebSocketCommand::I2cWrite { address, register, value } => {
+                                    info!("I2C write request: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, value);
+                                    let success = i2c_write(address, register, value).await.is_ok();
+                                    let _ = tx.send_json(OutgoingMessage::I2cWriteResult { 
+                                        address, 
+                                        register, 
+                                        success 
+                                    }).await;
+                                }
                             }
                         }
                         continue
