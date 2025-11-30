@@ -1,5 +1,5 @@
 use defmt::Format;
-use embassy_time::Timer;
+use embassy_time::{Ticker, Duration};
 use esp_hal::{
     analog::adc::{Adc, AdcCalLine, AdcConfig},
     peripherals::*,
@@ -7,8 +7,8 @@ use esp_hal::{
 
 use crate::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin, ADC_BUFFER_DATA, ADC_STATE};
 
-const ADC_BUFFER_SIZE: usize = 50;
-const ADC_SAMPLE_INTERVAL_MS: u64 = 5;
+const ADC_BUFFER_SIZE: usize = 125;
+const ADC_SAMPLE_INTERVAL_MS: u64 = 2;
 
 #[derive(Debug, Format, Clone)]
 pub struct AdcState {
@@ -118,6 +118,7 @@ pub async fn monitor_voltages(
         };
 
         // Collect 100 samples at 10ms intervals
+        let mut ticker = Ticker::every(Duration::from_millis(ADC_SAMPLE_INTERVAL_MS));
         for i in 0..ADC_BUFFER_SIZE {
             buffer.battery_voltage[i] = ((adc.read_oneshot(&mut adc_bat_pin).await as u32)
                 * calibration.battery_voltage_calibration
@@ -140,8 +141,8 @@ pub async fn monitor_voltages(
             buffer.a4[i] = ((adc.read_oneshot(&mut adc_a4_pin).await as u32)
                 * calibration.a4_calibration
                 / 1000) as u16;
-
-            Timer::after_millis(ADC_SAMPLE_INTERVAL_MS).await;
+            // Maintain sampling interval using ticker
+            ticker.next().await;
         }
 
         // Send the last sample from the buffer as the current state
