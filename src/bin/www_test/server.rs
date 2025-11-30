@@ -183,6 +183,8 @@ enum WebSocketCommand {
     I2cRead { address: u8, register: u8 },
     #[serde(rename = "i2c_write")]
     I2cWrite { address: u8, register: u8, value: u8 },
+    #[serde(rename = "uart_send")]
+    UartSend { bytes: Vec<u8> },
 }
 
 #[derive(Serialize)]
@@ -202,6 +204,8 @@ enum OutgoingMessage<'a> {
     I2cReadResult { address: u8, register: u8, value: u8, success: bool },
     #[serde(rename = "i2c_write_result")]
     I2cWriteResult { address: u8, register: u8, success: bool },
+    #[serde(rename = "uart_receive")]
+    UartReceive { bytes: alloc::vec::Vec<u8> },
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -307,6 +311,11 @@ impl ws::WebSocketCallback for WebsocketHandler {
             let _ = tx.close(Some((1011, "Failed to get ADC buffer subscriber"))).await;
             return Ok(());
         };
+        let Ok(mut uart_rx_subscriber) = mainboard::tasks::UART_RX_DATA.subscriber() else {
+            error!("Failed to get UART RX subscriber");
+            let _ = tx.close(Some((1011, "Failed to get UART RX subscriber"))).await;
+            return Ok(());
+        };
 
         let close_reason = loop {
             match select::select(
@@ -324,7 +333,10 @@ impl ws::WebSocketCallback for WebsocketHandler {
                         )
                     )
                 ),
-                adc_buffer_subscriber.next_message_pure()
+                select::select(
+                    adc_buffer_subscriber.next_message_pure(),
+                    uart_rx_subscriber.next_message_pure()
+                )
             ).await {
                 Either::First(Either4::First(x)) => match x {
                     Ok(ws::Message::Text(data)) => {
@@ -387,6 +399,10 @@ impl ws::WebSocketCallback for WebsocketHandler {
                                         register, 
                                         success 
                                     }).await;
+                                }
+                                WebSocketCommand::UartSend { bytes } => {
+                                    info!("UART send bytes request: {} bytes", bytes.len());
+                                    mainboard::tasks::uart_send(&bytes).await;
                                 }
                             }
                         }
@@ -467,18 +483,27 @@ impl ws::WebSocketCallback for WebsocketHandler {
                         }
                     }
                 }
-                Either::Second(buffer_data) => {
-                    let buffer_response = AdcBufferResponse {
-                        sequence: buffer_data.sequence,
-                        battery_voltage: buffer_data.battery_voltage.to_vec(),
-                        boost_voltage: buffer_data.boost_voltage.to_vec(),
-                        a0: buffer_data.a0.to_vec(),
-                        a1: buffer_data.a1.to_vec(),
-                        a2: buffer_data.a2.to_vec(),
-                        a3: buffer_data.a3.to_vec(),
-                        a4: buffer_data.a4.to_vec(),
-                    };
-                    tx.send_json(OutgoingMessage::AdcBuffer(buffer_response)).await
+                Either::Second(data_select) => {
+                    match data_select {
+                        Either::First(buffer_data) => {
+                            let buffer_response = AdcBufferResponse {
+                                sequence: buffer_data.sequence,
+                                battery_voltage: buffer_data.battery_voltage.to_vec(),
+                                boost_voltage: buffer_data.boost_voltage.to_vec(),
+                                a0: buffer_data.a0.to_vec(),
+                                a1: buffer_data.a1.to_vec(),
+                                a2: buffer_data.a2.to_vec(),
+                                a3: buffer_data.a3.to_vec(),
+                                a4: buffer_data.a4.to_vec(),
+                            };
+                            tx.send_json(OutgoingMessage::AdcBuffer(buffer_response)).await
+                        }
+                        Either::Second(uart_data) => {
+                            tx.send_json(OutgoingMessage::UartReceive { 
+                                bytes: uart_data.bytes 
+                            }).await
+                        }
+                    }
                 }
             }?;
         };

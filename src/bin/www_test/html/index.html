@@ -298,6 +298,41 @@
         </div>
     </section>
 
+    <section class="control-panel">
+        <h2>UART Terminal</h2>
+        
+        <div class="stats-panel">
+            <h3>Received Data (Text)</h3>
+            <div id="uart-text-display" style="font-family: monospace; background-color: #f5f5f5; padding: 10px; border-radius: 4px; min-height: 120px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"><span style="color: #666; font-style: italic;">Waiting for data...</span></div>
+        </div>
+
+        <div class="stats-panel" style="margin-top: 15px;">
+            <h3>Received Data (Hex Dump)</h3>
+            <div id="uart-hex-display" style="font-family: monospace; background-color: #f5f5f5; padding: 10px; border-radius: 4px; min-height: 120px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"><span style="color: #666; font-style: italic;">Waiting for data...</span></div>
+        </div>
+
+        <div class="stats-panel" style="margin-top: 15px;">
+            <h3>Send Data</h3>
+            <div style="margin-bottom: 10px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Text to Send</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="uart-text-input" placeholder="Enter text..." style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button class="button" onclick="sendUartText()" style="min-width: 120px;">Send Text</button>
+                </div>
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Bytes to Send (Hex, space separated)</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="uart-hex-input" placeholder="e.g., 0x41 0x42 0x43 or 41 42 43" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button class="button" onclick="sendUartHex()" style="min-width: 120px; background-color: #ff9800;">Send Hex</button>
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <button class="button off" onclick="clearUartDisplay()" style="min-width: 120px;">Clear</button>
+            </div>
+        </div>
+    </section>
+
     <div class="control-panel">
         <h2>Power Status</h2>
         
@@ -923,6 +958,116 @@
                 <strong>Error:</strong> ${data.message}
             </div>`;
         }
+        
+        // UART Functions
+        let uartReceivedData = [];
+        
+        function sendUartText() {
+            const textInput = document.getElementById('uart-text-input');
+            const text = textInput.value;
+            
+            if (!text) {
+                return;
+            }
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                alert('Error: Not connected to server');
+                return;
+            }
+            
+            // Convert text to bytes
+            const encoder = new TextEncoder();
+            const bytes = Array.from(encoder.encode(text));
+            
+            const command = {
+                type: 'uart_send',
+                bytes: bytes
+            };
+            
+            socket.send(JSON.stringify(command));
+            textInput.value = '';
+        }
+        
+        function sendUartHex() {
+            const hexInput = document.getElementById('uart-hex-input');
+            const hexStr = hexInput.value.trim();
+            
+            if (!hexStr) {
+                return;
+            }
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                alert('Error: Not connected to server');
+                return;
+            }
+            
+            // Parse hex values
+            const hexValues = hexStr.split(/\s+/).map(val => {
+                const cleaned = val.replace(/^0x/i, '');
+                const num = parseInt(cleaned, 16);
+                return isNaN(num) || num > 255 ? null : num;
+            });
+            
+            if (hexValues.some(v => v === null)) {
+                alert('Invalid hex values. Use format: 0x41 0x42 or 41 42');
+                return;
+            }
+            
+            const command = {
+                type: 'uart_send',
+                bytes: hexValues
+            };
+            
+            socket.send(JSON.stringify(command));
+            hexInput.value = '';
+        }
+        
+        function clearUartDisplay() {
+            uartReceivedData = [];
+            document.getElementById('uart-text-display').innerHTML = '<span style="color: #666; font-style: italic;">Waiting for data...</span>';
+            document.getElementById('uart-hex-display').innerHTML = '<span style="color: #666; font-style: italic;">Waiting for data...</span>';
+        }
+        
+        function handleUartReceive(data) {
+            if (!data.bytes || data.bytes.length === 0) {
+                return;
+            }
+            
+            // Add to received data buffer
+            uartReceivedData.push(...data.bytes);
+            
+            // Limit buffer size to prevent memory issues
+            const MAX_BUFFER = 10000;
+            if (uartReceivedData.length > MAX_BUFFER) {
+                uartReceivedData = uartReceivedData.slice(-MAX_BUFFER);
+            }
+            
+            // Update text display
+            const textDisplay = document.getElementById('uart-text-display');
+            const decoder = new TextDecoder('utf-8', { fatal: false });
+            const text = decoder.decode(new Uint8Array(uartReceivedData));
+            textDisplay.textContent = text;
+            textDisplay.scrollTop = textDisplay.scrollHeight;
+            
+            // Update hex display
+            const hexDisplay = document.getElementById('uart-hex-display');
+            let hexHtml = '';
+            for (let i = 0; i < uartReceivedData.length; i += 16) {
+                const offset = i.toString(16).toUpperCase().padStart(8, '0');
+                const chunk = uartReceivedData.slice(i, i + 16);
+                
+                // Hex part
+                const hexPart = chunk.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+                const hexPadding = ' '.repeat((16 - chunk.length) * 3);
+                
+                // ASCII part
+                const asciiPart = chunk.map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.').join('');
+                
+                hexHtml += `${offset}: ${hexPart}${hexPadding}  ${asciiPart}\n`;
+            }
+            hexDisplay.textContent = hexHtml;
+            hexDisplay.scrollTop = hexDisplay.scrollHeight;
+        }
 
         // Initialize WebSocket connection
         function initWebSocket() {
@@ -999,6 +1144,9 @@
                             break;
                         case 'i2c_write_result':
                             handleI2CWriteResult(data);
+                            break;
+                        case 'uart_receive':
+                            handleUartReceive(data);
                             break;
                         case 'error':
                             handleI2CError(data);

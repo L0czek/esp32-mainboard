@@ -19,7 +19,7 @@ use esp_hal::analog::adc::AdcConfig;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board, ADC_STATE, POWER_STATE};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
-use mainboard::tasks::{handle_ext_interrupt_line, handle_power_controller, monitor_voltages};
+use mainboard::tasks::{handle_ext_interrupt_line, handle_power_controller, monitor_voltages, uart_receive_task, uart_transmit_task};
 use simple_output::initialize_simple_output;
 
 use defmt::info;
@@ -91,6 +91,22 @@ async fn main(spawner: Spawner) {
     let _ = spawner.spawn(log_voltage_changes());
 
     let _ = spawner.spawn(handle_ext_interrupt_line(board.GlobalInt));
+
+    // Initialize UART
+    info!("Initializing UART...");
+    let uart = esp_hal::uart::Uart::new(
+        peripherals.UART0,
+        esp_hal::uart::Config::default(),
+    ).unwrap()
+        .with_rx(board.U0Rx)
+        .with_tx(board.U0Tx);
+    
+    // Convert to async
+    let uart = uart.into_async();
+    let (uart_rx, uart_tx) = uart.split();
+    let _ = spawner.spawn(uart_receive_task(uart_rx));
+    let _ = spawner.spawn(uart_transmit_task(uart_tx));
+    info!("UART initialized!");
 
     // Initialize WiFi in mixed mode (AP + STA)
     info!("Initializing WiFi...");
