@@ -11,8 +11,12 @@ use picoserve::{
 };
 extern crate alloc;
 use mainboard::tasks::{
-    set_state, watch_output, ADC_BUFFER_DATA, ADC_STATE, POWER_CONTROL, POWER_STATE, PowerRequest,
-    PowerResponse, DigitalPinID,
+    AdcHandle,
+    DigitalIoHandle,
+    PowerHandle,
+    UartHandle,
+    PowerResponse,
+    DigitalPinID,
 };
 use mainboard::power::PowerControllerStats;
 use alloc::string::String;
@@ -84,18 +88,39 @@ pub struct AdcBufferResponse {
 }
 
 // App properties for the web server
-struct AppProps;
+#[derive(Clone, Copy)]
+struct AppProps {
+    power: PowerHandle,
+    digital: DigitalIoHandle,
+    adc: AdcHandle,
+    uart: UartHandle,
+}
+
+#[derive(Clone, Copy)]
+struct WebsocketHandler {
+    power: PowerHandle,
+    digital: DigitalIoHandle,
+    adc: AdcHandle,
+    uart: UartHandle,
+}
 
 impl AppBuilder for AppProps {
     type PathRouter = impl PathRouter;
 
     fn build_app(self) -> Router<Self::PathRouter> {
+        let handler = WebsocketHandler {
+            power: self.power,
+            digital: self.digital,
+            adc: self.adc,
+            uart: self.uart,
+        };
+
         Router::new()
             .route("/", routing::get_service(File::html(include_str!("index.html"))))
             .route(
                 "/ws",
-                get(|upgrade: picoserve::response::WebSocketUpgrade| {
-                    upgrade.on_upgrade(WebsocketHandler)
+                get(move |upgrade: picoserve::response::WebSocketUpgrade| {
+                    upgrade.on_upgrade(handler)
                 }),
             )
     }
@@ -256,8 +281,6 @@ async fn i2c_write(address: u8, register: u8, value: u8) -> Result<(), ()> {
     }
 }
 
-struct WebsocketHandler;
-
 impl ws::WebSocketCallback for WebsocketHandler {
     async fn run<R: embedded_io_async::Read, W: embedded_io_async::Write<Error = R::Error>>(
         self,
@@ -266,47 +289,47 @@ impl ws::WebSocketCallback for WebsocketHandler {
     ) -> Result<(), W::Error> {
         let mut buffer = [0; 1024];
 
-        let Some(mut power_state_receiver) = POWER_STATE.receiver() else {
+        let Some(mut power_state_receiver) = self.power.state_receiver() else {
             error!("Failed to get power state receiver");
             let _ = tx.close(Some((1011, "Failed to get power state receiver"))).await;
             return Ok(());
         };
-        let Some(mut out1_receiver) = watch_output(DigitalPinID::D0) else {
+        let Some(mut out1_receiver) = self.digital.watch(DigitalPinID::D0) else {
             error!("Failed to watch output 1");
             let _ = tx.close(Some((1011, "Failed to watch output 1"))).await;
             return Ok(());
         };
-        let Some(mut out2_receiver) = watch_output(DigitalPinID::D1) else {
+        let Some(mut out2_receiver) = self.digital.watch(DigitalPinID::D1) else {
             error!("Failed to watch output 2");
             let _ = tx.close(Some((1011, "Failed to watch output 2"))).await;
             return Ok(());
         };
-        let Some(mut out3_receiver) = watch_output(DigitalPinID::D2) else {
+        let Some(mut out3_receiver) = self.digital.watch(DigitalPinID::D2) else {
             error!("Failed to watch output 3");
             let _ = tx.close(Some((1011, "Failed to watch output 3"))).await;
             return Ok(());
         };
-        let Some(mut out4_receiver) = watch_output(DigitalPinID::D3) else {
+        let Some(mut out4_receiver) = self.digital.watch(DigitalPinID::D3) else {
             error!("Failed to watch output 4");
             let _ = tx.close(Some((1011, "Failed to watch output 4"))).await;
             return Ok(());
         };
-        let Some(mut out5_receiver) = watch_output(DigitalPinID::D4) else {
+        let Some(mut out5_receiver) = self.digital.watch(DigitalPinID::D4) else {
             error!("Failed to watch output 5");
             let _ = tx.close(Some((1011, "Failed to watch output 5"))).await;
             return Ok(());
         };
-        let Some(mut adc_state_receiver) = ADC_STATE.receiver() else {
+        let Some(mut adc_state_receiver) = self.adc.state_receiver() else {
             error!("Failed to get ADC state receiver");
             let _ = tx.close(Some((1011, "Failed to get ADC state receiver"))).await;
             return Ok(());
         };
-        let Ok(mut adc_buffer_subscriber) = ADC_BUFFER_DATA.subscriber() else {
+        let Some(mut adc_buffer_subscriber) = self.adc.buffer_subscriber() else {
             error!("Failed to get ADC buffer subscriber");
             let _ = tx.close(Some((1011, "Failed to get ADC buffer subscriber"))).await;
             return Ok(());
         };
-        let Ok(mut uart_rx_subscriber) = mainboard::tasks::UART_RX_DATA.subscriber() else {
+        let Some(mut uart_rx_subscriber) = self.uart.subscribe() else {
             error!("Failed to get UART RX subscriber");
             let _ = tx.close(Some((1011, "Failed to get UART RX subscriber"))).await;
             return Ok(());
@@ -338,7 +361,7 @@ impl ws::WebSocketCallback for WebsocketHandler {
                         if let Ok(command) = serde_json::from_str::<WebSocketCommand>(data) {
                             match command {
                                 WebSocketCommand::Digital { id, value } => {
-                                    let _ = set_state(match id {
+                                    let pin = match id {
                                         0 => DigitalPinID::D0,
                                         1 => DigitalPinID::D1,
                                         2 => DigitalPinID::D2,
@@ -348,12 +371,14 @@ impl ws::WebSocketCallback for WebsocketHandler {
                                             error!("Invalid output ID: {}", id);
                                             continue;
                                         }
-                                    }, value != 0).await;
+                                    };
+
+                                    self.digital.set(pin, value != 0).await;
                                 }
                                 WebSocketCommand::Power { action, value } => match action.as_str() {
                                     "boost" => {
                                         info!("Setting boost converter to: {}", if value { "enabled" } else { "disabled" });
-                                        match POWER_CONTROL.transact(PowerRequest::EnableBoostConverter(value)).await {
+                                        match self.power.set_boost_converter(value).await {
                                             PowerResponse::Ok => info!("Boost converter set successfully"),
                                             PowerResponse::Err(_) => info!("Failed to set boost converter state"),
                                         };
@@ -397,7 +422,7 @@ impl ws::WebSocketCallback for WebsocketHandler {
                                 }
                                 WebSocketCommand::UartSend { bytes } => {
                                     info!("UART send bytes request: {} bytes", bytes.len());
-                                    mainboard::tasks::uart_send(&bytes).await;
+                                    self.uart.send(&bytes).await;
                                 }
                             }
                         }
@@ -511,14 +536,30 @@ impl ws::WebSocketCallback for WebsocketHandler {
 ///
 /// This function sets up the picoserve server using the provided WiFi resources
 /// and spawns tasks to handle web requests.
-pub async fn run_server(spawner: embassy_executor::Spawner, wifi_resources: &WifiResources) {
+pub async fn run_server(
+    spawner: embassy_executor::Spawner,
+    wifi_resources: &WifiResources,
+    power: PowerHandle,
+    adc: AdcHandle,
+    digital: DigitalIoHandle,
+    uart: UartHandle,
+) {
     let WifiResources {
         ap_stack,
         sta_stack,
     } = wifi_resources;
 
     // Create the router app
-    let app = make_static!(AppRouter<AppProps>, AppProps.build_app());
+    let app = make_static!(
+        AppRouter<AppProps>,
+        AppProps {
+            power,
+            digital,
+            adc,
+            uart,
+        }
+        .build_app()
+    );
 
     // Configure server timeouts
     let config = make_static!(

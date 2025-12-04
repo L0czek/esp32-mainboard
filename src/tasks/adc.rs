@@ -1,4 +1,8 @@
+use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use defmt::Format;
+use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::{pubsub::PubSubChannel, watch};
 use embassy_time::{Ticker, Duration};
@@ -8,6 +12,10 @@ use esp_hal::{
 };
 
 use crate::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin};
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 const ADC_BUFFER_SIZE: usize = 125;
 const ADC_SAMPLE_INTERVAL_MS: u64 = 2;
@@ -58,6 +66,70 @@ impl Default for VoltageMonitorCalibrationConfig {
         }
     }
 }
+
+// ============================================================================
+// CHANNELS
+// ============================================================================
+
+// ADC state management
+static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = 
+    watch::Watch::new();
+
+pub type AdcStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, AdcState, 4>;
+
+// ADC buffer data pubsub channel (for full recorded buffers)
+static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> = 
+    PubSubChannel::new();
+
+pub type AdcBufferSubscriber = embassy_sync::pubsub::Subscriber<'static, CriticalSectionRawMutex, AdcBufferData, 2, 4, 1>;
+
+static ADC_STARTED: AtomicBool = AtomicBool::new(false);
+
+// ============================================================================
+// SPAWN METHOD
+// ============================================================================
+
+pub fn spawn_adc_task(
+    spawner: &Spawner,
+    instance: ADC1<'static>,
+    config: AdcConfig<ADC1<'static>>,
+    calibration: VoltageMonitorCalibrationConfig,
+    bat_pin: BatVolPin,
+    boost_pin: BoostVolPin,
+    a0_pin: A0Pin,
+    a1_pin: A1Pin,
+    a2_pin: A2Pin,
+    a3_pin: A3Pin,
+    a4_pin: A4Pin,
+) -> AdcHandle {
+    if ADC_STARTED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        panic!("ADC task already started");
+    }
+
+    spawner
+        .spawn(adc_task(
+            instance,
+            config,
+            calibration,
+            bat_pin,
+            boost_pin,
+            a0_pin,
+            a1_pin,
+            a2_pin,
+            a3_pin,
+            a4_pin,
+        ))
+        .expect("spawn ADC task failed");
+
+    AdcHandle { _priv: PhantomData }
+}
+
+// ============================================================================
+// TASK
+// ============================================================================
 
 #[embassy_executor::task]
 pub async fn adc_task(
@@ -166,10 +238,25 @@ pub async fn adc_task(
     }
 }
 
-// ADC state management
-pub static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = 
-    watch::Watch::new();
+// ============================================================================
+// HANDLE
+// ============================================================================
 
-// ADC buffer data pubsub channel (for full recorded buffers)
-pub static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> = 
-    PubSubChannel::new();
+#[derive(Clone, Copy)]
+pub struct AdcHandle {
+    _priv: PhantomData<()>,
+}
+
+impl AdcHandle {
+    pub fn state_receiver(&self) -> Option<AdcStateReceiver> {
+        ADC_STATE.receiver()
+    }
+
+    pub fn state(&self) -> Option<AdcState> {
+        ADC_STATE.try_get()
+    }
+
+    pub fn buffer_subscriber(&self) -> Option<AdcBufferSubscriber> {
+        ADC_BUFFER_DATA.subscriber().ok()
+    }
+}

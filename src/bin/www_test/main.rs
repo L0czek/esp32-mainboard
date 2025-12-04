@@ -11,13 +11,17 @@ mod config;
 mod server;
 mod wifi;
 
-use core::borrow::Borrow;
-
 use esp_hal::analog::adc::AdcConfig;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::tasks::{
-    adc_task, ext_interrupt_task, initialize_digital_io, power_controller_task, uart_receive_task,
-    uart_transmit_task, ADC_STATE, POWER_STATE,
+    spawn_adc_task,
+    spawn_digital_io,
+    spawn_ext_interrupt_task,
+    spawn_power_controller,
+    spawn_uart_tasks,
+    AdcHandle,
+    PowerStateReceiver,
+    VoltageMonitorCalibrationConfig,
 };
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
@@ -71,12 +75,14 @@ async fn main(spawner: Spawner) {
         pcf8574_i2c: acquire_i2c_bus(),
         boost_converter_enable: board.BoostEn,
     };
-    let _ = spawner.spawn(power_controller_task(power_config, power_io));
-    let _ = spawner.spawn(log_power_state_changes_task());
+    let power = spawn_power_controller(&spawner, power_config, power_io);
+    let power_receiver = power.state_receiver().expect("Failed to get power state receiver");
+    spawner.spawn(log_power_state_changes_task(power_receiver)).expect("Failed to spawn log_power_state_changes_task");
 
     let adc_config = AdcConfig::new();
-    let calibration = Default::default();
-    let _ = spawner.spawn(adc_task(
+    let calibration: VoltageMonitorCalibrationConfig = Default::default();
+    let adc = spawn_adc_task(
+        &spawner,
         peripherals.ADC1,
         adc_config,
         calibration,
@@ -87,10 +93,10 @@ async fn main(spawner: Spawner) {
         board.A2,
         board.A3,
         board.A4,
-    ));
-    let _ = spawner.spawn(log_voltage_changes_task());
+    );
+    spawner.spawn(log_voltage_changes_task(adc)).expect("Failed to spawn log_voltage_changes_task");
 
-    let _ = spawner.spawn(ext_interrupt_task(board.GlobalInt));
+    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
 
     // Initialize UART
     info!("Initializing UART...");
@@ -104,8 +110,7 @@ async fn main(spawner: Spawner) {
     // Convert to async
     let uart = uart.into_async();
     let (uart_rx, uart_tx) = uart.split();
-    let _ = spawner.spawn(uart_receive_task(uart_rx));
-    let _ = spawner.spawn(uart_transmit_task(uart_tx));
+    let uart_handle = spawn_uart_tasks(&spawner, uart_rx, uart_tx);
     info!("UART initialized!");
 
     // Initialize WiFi in mixed mode (AP + STA)
@@ -115,11 +120,11 @@ async fn main(spawner: Spawner) {
     info!("WiFi initialized!");
 
     // Initialize simple output
-    initialize_digital_io(&spawner, board.D0, board.D1, board.D2, board.D3, board.D4);
+    let digital = spawn_digital_io(&spawner, board.D0, board.D1, board.D2, board.D3, board.D4);
 
     // Start the web server
     info!("Starting web server...");
-    server::run_server(spawner, &wifi_resources).await;
+    server::run_server(spawner, &wifi_resources, power, adc, digital, uart_handle).await;
     info!("Web server started!");
 
     // Main loop
@@ -134,20 +139,23 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn log_voltage_changes_task() {
+async fn log_voltage_changes_task(adc: AdcHandle) {
     loop {
-        if let Some(state) = ADC_STATE.try_get() {
-            info!("Battery voltage: {}mV, Boost voltage: {}mV", state.battery_voltage, state.boost_voltage);
+        if let Some(state) = adc.state() {
+            info!(
+                "Battery voltage: {}mV, Boost voltage: {}mV",
+                state.battery_voltage,
+                state.boost_voltage
+            );
         }
         Timer::after(Duration::from_secs(10)).await;
     }
 }
 
 #[embassy_executor::task]
-async fn log_power_state_changes_task() {
-    let mut receiver = POWER_STATE.receiver().unwrap();
+async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
     loop {
-        let stats = receiver.changed().await.borrow().clone();
+        let stats = receiver.changed().await.clone();
         stats.dump();
     }
 }

@@ -1,5 +1,9 @@
+use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use bq24296m::WatchdogTimer;
 use defmt::{error, info};
+use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch;
@@ -14,6 +18,10 @@ use crate::{
     I2cType,
 };
 
+// ============================================================================
+// TYPES
+// ============================================================================
+
 pub enum PowerRequest {
     EnableBoostConverter(bool),
     CheckInterrupt,
@@ -23,6 +31,49 @@ pub enum PowerResponse {
     Ok,
     Err(PowerControllerError<I2cType>),
 }
+
+// ============================================================================
+// CHANNELS
+// ============================================================================
+
+// Command channel for power control
+static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> =
+    RequestResponseChannel::with_static_channels();
+
+// Power state management
+static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> = 
+    watch::Watch::new();
+
+pub type PowerStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, PowerControllerStats, 4>;
+
+static POWER_STARTED: AtomicBool = AtomicBool::new(false);
+
+// ============================================================================
+// SPAWN METHOD
+// ============================================================================
+
+pub fn spawn_power_controller(
+    spawner: &Spawner,
+    config: PowerControllerConfig,
+    io: PowerControllerIO<I2cType>,
+) -> PowerHandle {
+    if POWER_STARTED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        panic!("power controller already started");
+    }
+
+    spawner
+        .spawn(power_controller_task(config, io))
+        .expect("spawn power controller failed");
+
+    PowerHandle { _priv: PhantomData }
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
 fn handle_power_controller_interrupt(
     pctl: &mut PowerController<I2cType>,
@@ -70,6 +121,10 @@ fn handle_power_controller_command(
         }
     }
 }
+
+// ============================================================================
+// TASK
+// ============================================================================
 
 #[embassy_executor::task]
 pub async fn power_controller_task(
@@ -134,10 +189,33 @@ pub async fn power_controller_task(
     }
 }
 
-// Command channel for power control
-pub static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> =
-    RequestResponseChannel::with_static_channels();
+// ============================================================================
+// HANDLE
+// ============================================================================
 
-// Power state management
-pub static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> = 
-    watch::Watch::new();
+#[derive(Clone, Copy)]
+pub struct PowerHandle {
+    _priv: PhantomData<()>,
+}
+
+impl PowerHandle {
+    pub async fn transact(&self, req: PowerRequest) -> PowerResponse {
+        POWER_CONTROL.transact(req).await
+    }
+
+    pub async fn set_boost_converter(&self, enable: bool) -> PowerResponse {
+        self.transact(PowerRequest::EnableBoostConverter(enable)).await
+    }
+
+    pub async fn check_interrupt(&self) -> PowerResponse {
+        self.transact(PowerRequest::CheckInterrupt).await
+    }
+
+    pub fn state_receiver(&self) -> Option<PowerStateReceiver> {
+        POWER_STATE.receiver()
+    }
+
+    pub fn state(&self) -> Option<PowerControllerStats> {
+        POWER_STATE.try_get()
+    }
+}

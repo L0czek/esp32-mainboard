@@ -1,4 +1,8 @@
+use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use defmt::{error, info};
+use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::pubsub::PubSubChannel;
@@ -7,6 +11,10 @@ use esp_hal::Async;
 
 extern crate alloc;
 use alloc::vec::Vec;
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 /// Maximum size for a single UART receive batch
 const MAX_UART_BATCH: usize = 256;
@@ -17,18 +25,51 @@ pub struct UartReceiveData {
     pub bytes: Vec<u8>,
 }
 
+// ============================================================================
+// CHANNELS
+// ============================================================================
+
 /// Global pubsub channel for UART received data
 /// Capacity: 4 messages, 4 subscribers, 1 publisher
-pub static UART_RX_DATA: PubSubChannel<CriticalSectionRawMutex, UartReceiveData, 4, 4, 1> = 
+static UART_RX_DATA: PubSubChannel<CriticalSectionRawMutex, UartReceiveData, 4, 4, 1> = 
     PubSubChannel::new();
 
-/// UART TX command channel - for sending data from WebSocket to UART
-pub static UART_TX_CHANNEL: Channel<CriticalSectionRawMutex, Vec<u8>, 4> = Channel::new();
+pub type UartRxSubscriber = embassy_sync::pubsub::Subscriber<'static, CriticalSectionRawMutex, UartReceiveData, 4, 4, 1>;
 
-/// Send data via UART (queues it for transmission)
-pub async fn uart_send(data: &[u8]) {
-    UART_TX_CHANNEL.send(data.to_vec()).await;
+/// UART TX command channel - for sending data from WebSocket to UART
+static UART_TX_CHANNEL: Channel<CriticalSectionRawMutex, Vec<u8>, 4> = Channel::new();
+
+static UART_STARTED: AtomicBool = AtomicBool::new(false);
+
+// ============================================================================
+// SPAWN METHOD
+// ============================================================================
+
+pub fn spawn_uart_tasks(
+    spawner: &Spawner,
+    uart_rx: UartRx<'static, Async>,
+    uart_tx: UartTx<'static, Async>,
+) -> UartHandle {
+    if UART_STARTED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        panic!("UART tasks already started");
+    }
+
+    spawner
+        .spawn(uart_receive_task(uart_rx))
+        .expect("spawn UART receive failed");
+    spawner
+        .spawn(uart_transmit_task(uart_tx))
+        .expect("spawn UART transmit failed");
+
+    UartHandle { _priv: PhantomData }
 }
+
+// ============================================================================
+// TASKS
+// ============================================================================
 
 /// Task to handle UART reception
 /// Continuously reads from UART and publishes received data
@@ -77,5 +118,25 @@ pub async fn uart_transmit_task(mut uart_tx: UartTx<'static, Async>) {
                 error!("UART write error");
             }
         }
+    }
+}
+
+// ============================================================================
+// HANDLE
+// ============================================================================
+
+#[derive(Clone, Copy)]
+pub struct UartHandle {
+    _priv: PhantomData<()>,
+}
+
+impl UartHandle {
+    pub async fn send(&self, data: &[u8]) {
+        UART_TX_CHANNEL.send(data.to_vec()).await;
+    }
+
+    /// Subscribe to UART RX data
+    pub fn subscribe(&self) -> Option<UartRxSubscriber> {
+        UART_RX_DATA.subscriber().ok()
     }
 }
