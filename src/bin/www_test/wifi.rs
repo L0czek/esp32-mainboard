@@ -80,7 +80,7 @@ pub async fn initialize_wifi(
     controller.set_configuration(&client_config).unwrap();
 
     // Spawn WiFi tasks
-    spawner.spawn(connection(controller)).unwrap();
+    spawner.spawn(connection_task(controller)).unwrap();
     spawner.spawn(net_task(ap_runner)).unwrap();
     spawner.spawn(net_task(sta_runner)).unwrap();
     // Wait for AP to come up
@@ -106,7 +106,7 @@ pub async fn initialize_wifi(
 }
 
 #[embassy_executor::task]
-async fn connection(mut controller: WifiController<'static>) {
+async fn connection_task(mut controller: WifiController<'static>) {
     info!("Starting WiFi connection task");
 
     info!("Starting WiFi");

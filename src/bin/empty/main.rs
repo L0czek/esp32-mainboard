@@ -10,7 +10,8 @@
 use core::borrow::Borrow;
 
 use esp_hal::analog::adc::AdcConfig;
-use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board, ADC_STATE, POWER_STATE};
+use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
+use mainboard::tasks::{ADC_STATE, POWER_STATE};
 use mainboard::create_board;
 
 use defmt::info;
@@ -21,7 +22,7 @@ use esp_hal::clock::CpuClock;
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::timer::timg::TimerGroup;
 use mainboard::power::PowerControllerIO;
-use mainboard::tasks::{handle_ext_interrupt_line, handle_power_controller, monitor_voltages};
+use mainboard::tasks::{ext_interrupt_task, power_controller_task, adc_task};
 use panic_rtt_target as _;
 
 extern crate alloc;
@@ -62,12 +63,12 @@ async fn main(spawner: Spawner) {
         pcf8574_i2c: acquire_i2c_bus(),
         boost_converter_enable: board.BoostEn,
     };
-    let _ = spawner.spawn(handle_power_controller(power_config, power_io));
-    let _ = spawner.spawn(log_power_state_changes());
+    let _ = spawner.spawn(power_controller_task(power_config, power_io));
+    let _ = spawner.spawn(log_power_state_changes_task());
 
     let adc_config = AdcConfig::new();
     let calibration = Default::default();
-    let _ = spawner.spawn(monitor_voltages(
+    let _ = spawner.spawn(adc_task(
         peripherals.ADC1,
         adc_config,
         calibration,
@@ -79,9 +80,9 @@ async fn main(spawner: Spawner) {
         board.A3,
         board.A4,
     ));
-    let _ = spawner.spawn(log_voltage_changes());
+    let _ = spawner.spawn(log_voltage_changes_task());
 
-    let _ = spawner.spawn(handle_ext_interrupt_line(board.GlobalInt));
+    let _ = spawner.spawn(ext_interrupt_task(board.GlobalInt));
 
     loop {
         info!("Hello world!");
@@ -92,7 +93,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn log_voltage_changes() {
+async fn log_voltage_changes_task() {
     loop {
         if let Some(state) = ADC_STATE.try_get() {
             info!("Battery voltage: {}mV, Boost voltage: {}mV", state.battery_voltage, state.boost_voltage);
@@ -102,7 +103,7 @@ async fn log_voltage_changes() {
 }
 
 #[embassy_executor::task]
-async fn log_power_state_changes() {
+async fn log_power_state_changes_task() {
     let mut receiver = POWER_STATE.receiver().unwrap();
     loop {
         let stats = receiver.changed().await.borrow().clone();

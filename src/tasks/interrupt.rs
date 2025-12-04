@@ -4,12 +4,10 @@ use esp_hal::{
     peripherals::GPIO7,
 };
 
-use crate::board::POWER_CONTROL;
-
-use super::PowerResponse;
+use super::{POWER_CONTROL, PowerResponse};
 
 #[embassy_executor::task]
-pub async fn handle_ext_interrupt_line(line: GPIO7<'static>) {
+pub async fn ext_interrupt_task(line: GPIO7<'static>) {
     let mut pin = Input::new(
         line,
         InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),

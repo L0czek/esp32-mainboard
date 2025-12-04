@@ -10,19 +10,16 @@ use picoserve::{
     AppBuilder, AppRouter, Router,
 };
 extern crate alloc;
-use mainboard::{board::{POWER_STATE, ADC_STATE, ADC_BUFFER_DATA}, power::PowerControllerStats};
-use crate::simple_output::{set_state, watch_output};
+use mainboard::tasks::{
+    set_state, watch_output, ADC_BUFFER_DATA, ADC_STATE, POWER_CONTROL, POWER_STATE, PowerRequest,
+    PowerResponse, DigitalPinID,
+};
+use mainboard::power::PowerControllerStats;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::wifi::WifiResources;
-use crate::{
-    html::INDEX_HTML,
-    simple_output::OutputID,
-};
 use bq24296m;
-use mainboard::board::POWER_CONTROL;
-use mainboard::tasks::{PowerRequest, PowerResponse};
 
 // Define the pool size for web tasks
 const WEB_TASK_POOL_SIZE: usize = 8;
@@ -94,7 +91,7 @@ impl AppBuilder for AppProps {
 
     fn build_app(self) -> Router<Self::PathRouter> {
         Router::new()
-            .route("/", routing::get_service(File::html(INDEX_HTML)))
+            .route("/", routing::get_service(File::html(include_str!("index.html"))))
             .route(
                 "/ws",
                 get(|upgrade: picoserve::response::WebSocketUpgrade| {
@@ -206,8 +203,6 @@ enum OutgoingMessage<'a> {
     I2cWriteResult { address: u8, register: u8, success: bool },
     #[serde(rename = "uart_receive")]
     UartReceive { bytes: alloc::vec::Vec<u8> },
-    #[serde(rename = "error")]
-    Error { message: String },
 }
 
 // I2C helper functions
@@ -276,27 +271,27 @@ impl ws::WebSocketCallback for WebsocketHandler {
             let _ = tx.close(Some((1011, "Failed to get power state receiver"))).await;
             return Ok(());
         };
-        let Some(mut out1_receiver) = watch_output(OutputID::OutputD0) else {
+        let Some(mut out1_receiver) = watch_output(DigitalPinID::D0) else {
             error!("Failed to watch output 1");
             let _ = tx.close(Some((1011, "Failed to watch output 1"))).await;
             return Ok(());
         };
-        let Some(mut out2_receiver) = watch_output(OutputID::OutputD1) else {
+        let Some(mut out2_receiver) = watch_output(DigitalPinID::D1) else {
             error!("Failed to watch output 2");
             let _ = tx.close(Some((1011, "Failed to watch output 2"))).await;
             return Ok(());
         };
-        let Some(mut out3_receiver) = watch_output(OutputID::OutputD2) else {
+        let Some(mut out3_receiver) = watch_output(DigitalPinID::D2) else {
             error!("Failed to watch output 3");
             let _ = tx.close(Some((1011, "Failed to watch output 3"))).await;
             return Ok(());
         };
-        let Some(mut out4_receiver) = watch_output(OutputID::OutputD3) else {
+        let Some(mut out4_receiver) = watch_output(DigitalPinID::D3) else {
             error!("Failed to watch output 4");
             let _ = tx.close(Some((1011, "Failed to watch output 4"))).await;
             return Ok(());
         };
-        let Some(mut out5_receiver) = watch_output(OutputID::OutputD4) else {
+        let Some(mut out5_receiver) = watch_output(DigitalPinID::D4) else {
             error!("Failed to watch output 5");
             let _ = tx.close(Some((1011, "Failed to watch output 5"))).await;
             return Ok(());
@@ -344,11 +339,11 @@ impl ws::WebSocketCallback for WebsocketHandler {
                             match command {
                                 WebSocketCommand::Digital { id, value } => {
                                     let _ = set_state(match id {
-                                        0 => OutputID::OutputD0,
-                                        1 => OutputID::OutputD1,
-                                        2 => OutputID::OutputD2,
-                                        3 => OutputID::OutputD3,
-                                        4 => OutputID::OutputD4,
+                                        0 => DigitalPinID::D0,
+                                        1 => DigitalPinID::D1,
+                                        2 => DigitalPinID::D2,
+                                        3 => DigitalPinID::D3,
+                                        4 => DigitalPinID::D4,
                                         _ => {
                                             error!("Invalid output ID: {}", id);
                                             continue;

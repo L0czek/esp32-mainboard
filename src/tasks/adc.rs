@@ -1,11 +1,13 @@
 use defmt::Format;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::{pubsub::PubSubChannel, watch};
 use embassy_time::{Ticker, Duration};
 use esp_hal::{
     analog::adc::{Adc, AdcCalLine, AdcConfig},
     peripherals::*,
 };
 
-use crate::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin, ADC_BUFFER_DATA, ADC_STATE};
+use crate::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin};
 
 const ADC_BUFFER_SIZE: usize = 125;
 const ADC_SAMPLE_INTERVAL_MS: u64 = 2;
@@ -58,7 +60,7 @@ impl Default for VoltageMonitorCalibrationConfig {
 }
 
 #[embassy_executor::task]
-pub async fn monitor_voltages(
+pub async fn adc_task(
     instance: ADC1<'static>,
     mut config: AdcConfig<ADC1<'static>>,
     calibration: VoltageMonitorCalibrationConfig,
@@ -163,3 +165,11 @@ pub async fn monitor_voltages(
         sequence = sequence.wrapping_add(1);
     }
 }
+
+// ADC state management
+pub static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = 
+    watch::Watch::new();
+
+// ADC buffer data pubsub channel (for full recorded buffers)
+pub static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> = 
+    PubSubChannel::new();

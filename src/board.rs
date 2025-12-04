@@ -8,15 +8,6 @@ use esp_hal::{
 
 use once_cell::sync::OnceCell;
 
-use crate::{
-    channel::RequestResponseChannel,
-    power::PowerControllerStats,
-    tasks::{AdcState, PowerRequest, PowerResponse},
-};
-
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::{pubsub::PubSubChannel, watch};
-
 pub type GlobalIntPin = GPIO7<'static>;
 pub type BoostEnPin = GPIO15<'static>;
 
@@ -108,6 +99,8 @@ macro_rules! create_board {
     };
 }
 
+pub type I2cType = AtomicDevice<'static, I2c<'static, Blocking>>;
+
 static I2C_BUS: OnceCell<AtomicCell<I2c<'static, Blocking>>> = OnceCell::new();
 
 pub fn init_i2c_bus(i2c0: I2C0<'static>, sda: SdaPin, scl: SclPin) -> Result<(), ConfigError> {
@@ -127,19 +120,3 @@ pub fn acquire_i2c_bus() -> AtomicDevice<'static, I2c<'static, Blocking>> {
     }
 }
 
-// Command channel for power control
-pub static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> =
-    RequestResponseChannel::with_static_channels();
-
-// Power state management
-pub static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> = 
-    watch::Watch::new();
-
-// ADC state management
-pub static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = 
-    watch::Watch::new();
-
-// ADC buffer data pubsub channel (for full recorded buffers)
-use crate::tasks::AdcBufferData;
-pub static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> = 
-    PubSubChannel::new();

@@ -5,12 +5,13 @@
 //! and monitors pin state changes.
 
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::watch::{self, Watch};
 use embassy_futures::select;
 use embassy_futures::select::Either;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch::{self, Watch};
 use esp_hal::gpio::{DriveMode, Flex, Level, Output, OutputConfig, OutputPin};
-use mainboard::channel::RequestResponseChannel;
+
+use crate::channel::RequestResponseChannel;
 
 /// Represents the actual state of a pin as an input
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -41,14 +42,14 @@ fn pin_state(pin: &Flex<'_>) -> PinState {
     }
 }
 
-/// Identifies which output to control
+/// Identifies which digital pin to control
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum OutputID {
-    OutputD0,
-    OutputD1,
-    OutputD2,
-    OutputD3,
-    OutputD4,
+pub enum DigitalPinID {
+    D0,
+    D1,
+    D2,
+    D3,
+    D4,
 }
 
 /// Commands that can be sent to the output task
@@ -59,21 +60,21 @@ enum Command {
 type CommandResult = ();
 
 /// Channels for sending commands to output tasks
-static OUTPUT_D0_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static OUTPUT_D1_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static OUTPUT_D2_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static OUTPUT_D3_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static OUTPUT_D4_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static DIGITAL_D0_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static DIGITAL_D1_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static DIGITAL_D2_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static DIGITAL_D3_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static DIGITAL_D4_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
 
 /// Watch channels for pin state (input) notifications
-static OUTPUT_D0_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static OUTPUT_D1_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static OUTPUT_D2_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static OUTPUT_D3_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static OUTPUT_D4_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static DIGITAL_D0_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static DIGITAL_D1_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static DIGITAL_D2_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static DIGITAL_D3_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+static DIGITAL_D4_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
 
-/// Initialize the simple output module
-pub fn initialize_simple_output(
+/// Initialize the digital IO module
+pub fn initialize_digital_io(
     spawner: &Spawner,
     d0: impl OutputPin + 'static,
     d1: impl OutputPin + 'static,
@@ -88,11 +89,11 @@ pub fn initialize_simple_output(
     let output4 = new_configured_output(d3);
     let output5 = new_configured_output(d4);
     // Spawn tasks for each output
-    spawner.spawn(output_task(OutputID::OutputD0, output1)).unwrap();
-    spawner.spawn(output_task(OutputID::OutputD1, output2)).unwrap();
-    spawner.spawn(output_task(OutputID::OutputD2, output3)).unwrap();
-    spawner.spawn(output_task(OutputID::OutputD3, output4)).unwrap();
-    spawner.spawn(output_task(OutputID::OutputD4, output5)).unwrap();
+    spawner.spawn(digital_pin_task(DigitalPinID::D0, output1)).unwrap();
+    spawner.spawn(digital_pin_task(DigitalPinID::D1, output2)).unwrap();
+    spawner.spawn(digital_pin_task(DigitalPinID::D2, output3)).unwrap();
+    spawner.spawn(digital_pin_task(DigitalPinID::D3, output4)).unwrap();
+    spawner.spawn(digital_pin_task(DigitalPinID::D4, output5)).unwrap();
 }
 
 /// Configure a pin as an open-drain output
@@ -108,13 +109,13 @@ fn new_configured_output<Pin: OutputPin + 'static>(pin: Pin) -> Flex<'static> {
 
 /// Main task that manages an output pin
 #[embassy_executor::task(pool_size = 5)]
-async fn output_task(output_id: OutputID, mut pin: Flex<'static>) -> ! {
+async fn digital_pin_task(output_id: DigitalPinID, mut pin: Flex<'static>) -> ! {
     let (channel, pin_state_watch) = match output_id {
-        OutputID::OutputD0 => (&OUTPUT_D0_CHANNEL, &OUTPUT_D0_STATE),
-        OutputID::OutputD1 => (&OUTPUT_D1_CHANNEL, &OUTPUT_D1_STATE),
-        OutputID::OutputD2 => (&OUTPUT_D2_CHANNEL, &OUTPUT_D2_STATE),
-        OutputID::OutputD3 => (&OUTPUT_D3_CHANNEL, &OUTPUT_D3_STATE),
-        OutputID::OutputD4 => (&OUTPUT_D4_CHANNEL, &OUTPUT_D4_STATE),
+        DigitalPinID::D0 => (&DIGITAL_D0_CHANNEL, &DIGITAL_D0_STATE),
+        DigitalPinID::D1 => (&DIGITAL_D1_CHANNEL, &DIGITAL_D1_STATE),
+        DigitalPinID::D2 => (&DIGITAL_D2_CHANNEL, &DIGITAL_D2_STATE),
+        DigitalPinID::D3 => (&DIGITAL_D3_CHANNEL, &DIGITAL_D3_STATE),
+        DigitalPinID::D4 => (&DIGITAL_D4_CHANNEL, &DIGITAL_D4_STATE),
     };
     let sender = pin_state_watch.sender();
 
@@ -148,35 +149,35 @@ async fn output_task(output_id: OutputID, mut pin: Flex<'static>) -> ! {
 /// # Arguments
 /// * `output_id` - Which output to control
 /// * `bool` - If false, pulls the output low. If true, lets it float.
-pub async fn set_state(output_id: OutputID, state: bool) -> () {
+pub async fn set_state(output_id: DigitalPinID, state: bool) -> () {
     match output_id {
-        OutputID::OutputD0 => OUTPUT_D0_CHANNEL.transact(Command::SetState(state)).await,
-        OutputID::OutputD1 => OUTPUT_D1_CHANNEL.transact(Command::SetState(state)).await,
-        OutputID::OutputD2 => OUTPUT_D2_CHANNEL.transact(Command::SetState(state)).await,
-        OutputID::OutputD3 => OUTPUT_D3_CHANNEL.transact(Command::SetState(state)).await,
-        OutputID::OutputD4 => OUTPUT_D4_CHANNEL.transact(Command::SetState(state)).await,
+        DigitalPinID::D0 => DIGITAL_D0_CHANNEL.transact(Command::SetState(state)).await,
+        DigitalPinID::D1 => DIGITAL_D1_CHANNEL.transact(Command::SetState(state)).await,
+        DigitalPinID::D2 => DIGITAL_D2_CHANNEL.transact(Command::SetState(state)).await,
+        DigitalPinID::D3 => DIGITAL_D3_CHANNEL.transact(Command::SetState(state)).await,
+        DigitalPinID::D4 => DIGITAL_D4_CHANNEL.transact(Command::SetState(state)).await,
     }
 }
 
 /// Get a receiver that will be notified when the specified pin's state changes
-pub fn watch_output(id: OutputID) -> Option<watch::Receiver<'static, CriticalSectionRawMutex, PinState, 4>> {
+pub fn watch_output(id: DigitalPinID) -> Option<watch::Receiver<'static, CriticalSectionRawMutex, PinState, 4>> {
     match id {
-        OutputID::OutputD0 => OUTPUT_D0_STATE.receiver(),
-        OutputID::OutputD1 => OUTPUT_D1_STATE.receiver(),
-        OutputID::OutputD2 => OUTPUT_D2_STATE.receiver(),
-        OutputID::OutputD3 => OUTPUT_D3_STATE.receiver(),
-        OutputID::OutputD4 => OUTPUT_D4_STATE.receiver(),
+        DigitalPinID::D0 => DIGITAL_D0_STATE.receiver(),
+        DigitalPinID::D1 => DIGITAL_D1_STATE.receiver(),
+        DigitalPinID::D2 => DIGITAL_D2_STATE.receiver(),
+        DigitalPinID::D3 => DIGITAL_D3_STATE.receiver(),
+        DigitalPinID::D4 => DIGITAL_D4_STATE.receiver(),
     }
 }
 
 /// Get the current state of a pin
-/// Note: Use watch_pin_state() to get state changes instead of polling with this function
-pub fn get_output_state(id: OutputID) -> Option<PinState> {
+/// Note: Use watch_output() to get state changes instead of polling with this function
+pub fn get_output_state(id: DigitalPinID) -> Option<PinState> {
     match id {
-        OutputID::OutputD0 => OUTPUT_D0_STATE.try_get(),
-        OutputID::OutputD1 => OUTPUT_D1_STATE.try_get(),
-        OutputID::OutputD2 => OUTPUT_D2_STATE.try_get(),
-        OutputID::OutputD3 => OUTPUT_D3_STATE.try_get(),
-        OutputID::OutputD4 => OUTPUT_D4_STATE.try_get(),
+        DigitalPinID::D0 => DIGITAL_D0_STATE.try_get(),
+        DigitalPinID::D1 => DIGITAL_D1_STATE.try_get(),
+        DigitalPinID::D2 => DIGITAL_D2_STATE.try_get(),
+        DigitalPinID::D3 => DIGITAL_D3_STATE.try_get(),
+        DigitalPinID::D4 => DIGITAL_D4_STATE.try_get(),
     }
 }

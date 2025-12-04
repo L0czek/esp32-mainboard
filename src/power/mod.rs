@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use defmt::{write as defmt_write, Format};
+use defmt::{write as defmt_write, Debug2Format, Format};
 use embedded_hal::i2c::I2c;
 
 #[derive(Debug)]
@@ -29,12 +29,19 @@ impl<I2C: I2c> Display for PowerControllerError<I2C> {
 impl<I2C: I2c> Format for PowerControllerError<I2C> {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
-            // TODO: Fix defmt formatting for bus_error and expander_err
             PowerControllerError::I2cBusError(bus_error) => {
-                defmt_write!(fmt, "Power Controller error due to I2C bus malfunction")
+                defmt_write!(
+                    fmt,
+                    "Power Controller error due to I2C bus malfunction: {}",
+                    Debug2Format(bus_error)
+                )
             }
             PowerControllerError::I2CExpanderError(expander_err) => {
-                defmt_write!(fmt, "Power Controller error due to I2C expander error")
+                defmt_write!(
+                    fmt,
+                    "Power Controller error due to I2C expander error: {}",
+                    Debug2Format(expander_err)
+                )
             }
         }
     }
