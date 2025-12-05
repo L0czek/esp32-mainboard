@@ -52,6 +52,13 @@
         .button.off { 
             background-color: #f44336; 
         }
+        .button.mode { 
+            background-color: #FFC107;
+            color: #333;
+            padding: 6px 10px; /* smaller to match inline mode label */
+            font-size: 12px;
+            min-width: 70px;
+        }
         .button:hover {
             opacity: 0.9;
         }
@@ -168,50 +175,70 @@
     <div class="refresh-info" id="connection-status" style="text-align: center; margin-bottom: 20px; font-size: 14px;">Connecting to WebSocket...</div>
     
     <section class="control-panel">
-        <h2>Digital Outputs (D0-D4)</h2>
+        <h2>Digital I/O (D0-D4)</h2>
         <div class="flex-between">
             <div>
                 <strong>D0:</strong> <span id="pin0-state" class="stats-value">Loading...</span>
+                <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                    Mode: <span id="pin0-mode" style="font-weight: bold;">OpenDrain</span>
+                    <button class="button mode" onclick="togglePinMode(0)">Mode</button>
+                </div>
             </div>
             <div class="button-group">
-                <button class="button off" onclick="sendCommand('digital', 0, 0)">Pull Down</button>
-                <button class="button" onclick="sendCommand('digital', 0, 1)">Reset</button>
+                <button class="button off" onclick="sendCommand('digital', 0, 0)">Low</button>
+                <button class="button" onclick="sendCommand('digital', 0, 1)">Float</button>
             </div>
         </div>
         <div class="flex-between">
             <div>
                 <strong>D1:</strong> <span id="pin1-state" class="stats-value">Loading...</span>
+                <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                    Mode: <span id="pin1-mode" style="font-weight: bold;">OpenDrain</span>
+                    <button class="button mode" onclick="togglePinMode(1)">Mode</button>
+                </div>
             </div>
             <div class="button-group">
-                <button class="button off" onclick="sendCommand('digital', 1, 0)">Pull Down</button>
-                <button class="button" onclick="sendCommand('digital', 1, 1)">Reset</button>
+                <button class="button off" onclick="sendCommand('digital', 1, 0)">Low</button>
+                <button class="button" onclick="sendCommand('digital', 1, 1)">Float</button>
             </div>
         </div>
         <div class="flex-between">
             <div>
                 <strong>D2:</strong> <span id="pin2-state" class="stats-value">Loading...</span>
+                <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                    Mode: <span id="pin2-mode" style="font-weight: bold;">OpenDrain</span>
+                    <button class="button mode" onclick="togglePinMode(2)">Mode</button>
+                </div>
             </div>
             <div class="button-group">
-                <button class="button off" onclick="sendCommand('digital', 2, 0)">Pull Down</button>
-                <button class="button" onclick="sendCommand('digital', 2, 1)">Reset</button>
+                <button class="button off" onclick="sendCommand('digital', 2, 0)">Low</button>
+                <button class="button" onclick="sendCommand('digital', 2, 1)">Float</button>
             </div>
         </div>
         <div class="flex-between">
             <div>
                 <strong>D3:</strong> <span id="pin3-state" class="stats-value">Loading...</span>
+                <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                    Mode: <span id="pin3-mode" style="font-weight: bold;">OpenDrain</span>
+                    <button class="button mode" onclick="togglePinMode(3)">Mode</button>
+                </div>
             </div>
             <div class="button-group">
-                <button class="button off" onclick="sendCommand('digital', 3, 0)">Pull Down</button>
-                <button class="button" onclick="sendCommand('digital', 3, 1)">Reset</button>
+                <button class="button off" onclick="sendCommand('digital', 3, 0)">Low</button>
+                <button class="button" onclick="sendCommand('digital', 3, 1)">Float</button>
             </div>
         </div>
         <div class="flex-between">
             <div>
                 <strong>D4:</strong> <span id="pin4-state" class="stats-value">Loading...</span>
+                <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                    Mode: <span id="pin4-mode" style="font-weight: bold;">OpenDrain</span>
+                   <button class="button mode" onclick="togglePinMode(4)">Mode</button>
+                </div>
             </div>
             <div class="button-group">
-                <button class="button off" onclick="sendCommand('digital', 4, 0)">Pull Down</button>
-                <button class="button" onclick="sendCommand('digital', 4, 1)">Reset</button>
+                <button class="button off" onclick="sendCommand('digital', 4, 0)">Low</button>
+                <button class="button" onclick="sendCommand('digital', 4, 1)">Float</button>
             </div>
         </div>
     </section>
@@ -655,6 +682,46 @@
         }
 
 
+        // Function to toggle pin mode (switches to opposite mode)
+        function togglePinMode(id) {
+            const modeElement = document.getElementById(`pin${id}-mode`);
+            const currentMode = modeElement ? modeElement.textContent : 'OpenDrain';
+            const newMode = (currentMode === 'OpenDrain') ? 'PushPull' : 'OpenDrain';
+            sendModeCommand(id, newMode);
+        }
+
+        // Function to send mode change command
+        function sendModeCommand(id, mode) {
+            const statusElement = document.getElementById('status');
+            statusElement.style.display = 'block';
+            statusElement.textContent = `Setting pin ${id} mode to ${mode}...`;
+            statusElement.style.backgroundColor = '#e8f5e9';
+            
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                statusElement.textContent = 'Error: Not connected to server';
+                statusElement.style.backgroundColor = '#ffebee';
+                setTimeout(() => statusElement.style.display = 'none', 2000);
+                return;
+            }
+            
+            const command = {
+                type: 'digital_mode',
+                id: id,
+                mode: mode
+            };
+            
+            try {
+                socket.send(JSON.stringify(command));
+                statusElement.textContent = `Pin ${id} mode set to ${mode}`;
+                statusElement.style.backgroundColor = '#e8f5e9';
+                // Mode and button labels will be updated automatically when server sends back the state
+            } catch (error) {
+                statusElement.textContent = `Error: ${error.message}`;
+                statusElement.style.backgroundColor = '#ffebee';
+            }
+            
+            setTimeout(() => statusElement.style.display = 'none', 2000);
+        }
         
         // Function to send digital command
         function sendCommand(type, id, value) {
@@ -854,7 +921,6 @@
         
         function renderI2CGrid(devices) {
             const grid = document.getElementById('i2c-scan-grid');
-            const statusElement = document.getElementById('i2c-scan-status');
             grid.innerHTML = '';
             
             // Add column headers (0-F)
@@ -904,9 +970,6 @@
                     grid.appendChild(cell);
                 }
             }
-            
-            statusElement.textContent = `Scan complete: ${devices.length} device(s) found`;
-            statusElement.style.color = '#28a745';
         }
         
         function selectI2CDevice(address) {
@@ -1136,9 +1199,13 @@
                             updateAnalogInputGraphs(data);
                             console.log('ADC Buffer received - Sequence:', data.sequence);
                             break;
-                        case 'i2c_scan_result':
+                        case 'i2c_scan_result': {
                             renderI2CGrid(data.devices);
+                            const statusElement = document.getElementById('i2c-scan-status');
+                            statusElement.textContent = `Scan complete: ${data.devices.length} device(s) found`;
+                            statusElement.style.color = '#28a745';
                             break;
+                        }
                         case 'i2c_read_result':
                             handleI2CReadResult(data);
                             break;
@@ -1196,8 +1263,33 @@
         // Update pin states UI with received data
         function updatePinStatesUI(data) {
             const pinElement = document.getElementById(`pin${data.pin_number}-state`);
+            const modeElement = document.getElementById(`pin${data.pin_number}-mode`);
+            
             if (pinElement) {
                 pinElement.textContent = data.state;
+            }
+            
+            if (modeElement) {
+                modeElement.textContent = data.mode;
+            }
+            
+            // Update button labels based on mode
+            updateButtonLabels(data.pin_number, data.mode);
+        }
+        
+        // Update button labels based on pin mode
+        function updateButtonLabels(pinNumber, mode) {
+            const lowButton = document.querySelector(`button[onclick="sendCommand('digital', ${pinNumber}, 0)"]`);
+            const highButton = document.querySelector(`button[onclick="sendCommand('digital', ${pinNumber}, 1)"]`);
+            
+            if (lowButton && highButton) {
+                if (mode === 'OpenDrain') {
+                    lowButton.textContent = 'Low';
+                    highButton.textContent = 'Float';
+                } else if (mode === 'PushPull') {
+                    lowButton.textContent = 'Low';
+                    highButton.textContent = 'High';
+                }
             }
         }
 

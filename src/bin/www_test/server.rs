@@ -17,6 +17,7 @@ use mainboard::tasks::{
     UartHandle,
     PowerResponse,
     DigitalPinID,
+    PinMode,
 };
 use mainboard::power::PowerControllerStats;
 use alloc::string::String;
@@ -31,6 +32,7 @@ const WEB_TASK_POOL_SIZE: usize = 8;
 #[derive(Serialize)]
 struct PinStatesResponse<'a> {
     pin_number: u8,
+    mode: &'a str,
     state: &'a str,
 }
 
@@ -197,6 +199,8 @@ fn format_power_stats_response<'a>(stats: PowerControllerStats) -> PowerStatsRes
 enum WebSocketCommand {
     #[serde(rename = "digital")]
     Digital { id: u8, value: u8 },
+    #[serde(rename = "digital_mode")]
+    DigitalMode { id: u8, mode: String },
     #[serde(rename = "power")]
     Power { action: String, value: bool },
     #[serde(rename = "i2c_scan")]
@@ -375,6 +379,31 @@ impl ws::WebSocketCallback for WebsocketHandler {
 
                                     self.digital.set(pin, value != 0).await;
                                 }
+                                WebSocketCommand::DigitalMode { id, mode } => {
+                                    let pin = match id {
+                                        0 => DigitalPinID::D0,
+                                        1 => DigitalPinID::D1,
+                                        2 => DigitalPinID::D2,
+                                        3 => DigitalPinID::D3,
+                                        4 => DigitalPinID::D4,
+                                        _ => {
+                                            error!("Invalid output ID: {}", id);
+                                            continue;
+                                        }
+                                    };
+
+                                    let pin_mode = match mode.as_str() {
+                                        "OpenDrain" => PinMode::OpenDrain,
+                                        "PushPull" => PinMode::PushPull,
+                                        _ => {
+                                            error!("Invalid pin mode: {}", mode.as_str());
+                                            continue;
+                                        }
+                                    };
+
+                                    info!("Setting pin {} to mode {}", id, mode.as_str());
+                                    self.digital.set_mode(pin, pin_mode).await;
+                                }
                                 WebSocketCommand::Power { action, value } => match action.as_str() {
                                     "boost" => {
                                         info!("Setting boost converter to: {}", if value { "enabled" } else { "disabled" });
@@ -462,40 +491,45 @@ impl ws::WebSocketCallback for WebsocketHandler {
                 }
                 Either::First(Either4::Fourth(pin_select)) => {
                     match pin_select {
-                        Either3::First(out1_state) => {
+                        Either3::First((mode, state)) => {
                             let pin_state_response = PinStatesResponse {
                                 pin_number: 0,
-                                state: out1_state.to_str(),
+                                mode: mode.to_str(),
+                                state: state.to_str(),
                             };
                             tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
                         }
-                        Either3::Second(out2_state) => {
+                        Either3::Second((mode, state)) => {
                             let pin_state_response = PinStatesResponse {
                                 pin_number: 1,
-                                state: out2_state.to_str(),
+                                mode: mode.to_str(),
+                                state: state.to_str(),
                             };
                             tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
                         }
                         Either3::Third(inner_select) => {
                             match inner_select {
-                                Either3::First(out3_state) => {
+                                Either3::First((mode, state)) => {
                                     let pin_state_response = PinStatesResponse {
                                         pin_number: 2,
-                                        state: out3_state.to_str(),
+                                        mode: mode.to_str(),
+                                        state: state.to_str(),
                                     };
                                     tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
                                 }
-                                Either3::Second(out4_state) => {
+                                Either3::Second((mode, state)) => {
                                     let pin_state_response = PinStatesResponse {
                                         pin_number: 3,
-                                        state: out4_state.to_str(),
+                                        mode: mode.to_str(),
+                                        state: state.to_str(),
                                     };
                                     tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
                                 }
-                                Either3::Third(out5_state) => {
+                                Either3::Third((mode, state)) => {
                                     let pin_state_response = PinStatesResponse {
                                         pin_number: 4,
-                                        state: out5_state.to_str(),
+                                        mode: mode.to_str(),
+                                        state: state.to_str(),
                                     };
                                     tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
                                 }

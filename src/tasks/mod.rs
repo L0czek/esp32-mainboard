@@ -23,6 +23,8 @@ pub use digital_io::{
 	spawn_digital_io,
 	DigitalIoHandle,
 	DigitalPinID,
+	PinMode,
+	PinState,
 };
 pub use uart::{
 	spawn_uart_tasks,

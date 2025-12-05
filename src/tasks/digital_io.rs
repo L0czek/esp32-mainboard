@@ -1,7 +1,7 @@
-//! Simple output module with command-driven task pattern
+//! Digital I/O module with configurable pin modes
 //! 
-//! This module provides a safe interface for controlling output pins using a command-driven
-//! task pattern. Each output pin is managed by its own task that processes commands
+//! This module provides a safe interface for controlling digital I/O pins using a command-driven
+//! task pattern. Each pin is managed by its own task that processes commands
 //! and monitors pin state changes.
 
 use core::marker::PhantomData;
@@ -12,7 +12,7 @@ use embassy_futures::select;
 use embassy_futures::select::Either;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{self, Watch};
-use esp_hal::gpio::{DriveMode, Flex, Level, Output, OutputConfig, OutputPin};
+use esp_hal::gpio::{AnyPin, DriveMode, Flex, Level, Output, OutputConfig, OutputPin};
 
 use crate::channel::RequestResponseChannel;
 
@@ -20,12 +20,33 @@ use crate::channel::RequestResponseChannel;
 // TYPES
 // ============================================================================
 
-/// Represents the actual state of a pin as an input
+/// Pin drive mode
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PinMode {
+    /// Open-drain output - can pull low or float high. When floating, can read external signals.
+    OpenDrain,
+    /// Push-pull output - can drive high or low
+    PushPull,
+}
+
+impl PinMode {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            PinMode::OpenDrain => "OpenDrain",
+            PinMode::PushPull => "PushPull",
+        }
+    }
+}
+
+/// Represents the actual state of a pin
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PinState {
     InLow,      // Pin is reading as low (0V)
     InHigh,     // Pin is reading as high (VCC)
-    PullingDown, // Pin is being pulled down
+    DrivingLow,  // Pin is being pulled down
+    DrivingHigh, // Pin is being pulled up
+    
+    // Error state
     FunckingBad, // Invalid or undetermined state
 }
 
@@ -34,7 +55,8 @@ impl PinState {
         match self {
             PinState::InLow => "In Low",
             PinState::InHigh => "In High",
-            PinState::PullingDown => "Pulling Down",
+            PinState::DrivingLow => "Driving Low",
+            PinState::DrivingHigh => "Driving High",
             PinState::FunckingBad => "Fucking Bad (short circuit!)",
         }
     }
@@ -50,9 +72,14 @@ pub enum DigitalPinID {
     D4,
 }
 
-/// Commands that can be sent to the output task
+/// Commands that can be sent to the pin task
 enum Command {
+    /// Set pin level (interpretation depends on current mode)
+    /// In OpenDrain: false=pull down, true=float
+    /// In PushPull: false=drive low, true=drive high
     SetState(bool),
+    /// Change the pin mode
+    SetMode(PinMode),
 }
 
 type CommandResult = ();
@@ -68,14 +95,14 @@ static DIGITAL_D2_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = R
 static DIGITAL_D3_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
 static DIGITAL_D4_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
 
-/// Watch channels for pin state (input) notifications
-static DIGITAL_D0_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static DIGITAL_D1_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static DIGITAL_D2_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static DIGITAL_D3_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
-static DIGITAL_D4_STATE: Watch<CriticalSectionRawMutex, PinState, 4> = Watch::new();
+/// Watch channels for pin (mode, state) notifications
+static DIGITAL_D0_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
+static DIGITAL_D1_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
+static DIGITAL_D2_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
+static DIGITAL_D3_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
+static DIGITAL_D4_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
 
-pub type DigitalPinStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, PinState, 4>;
+pub type DigitalPinStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, (PinMode, PinState), 4>;
 
 static DIGITAL_IO_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -99,18 +126,12 @@ pub fn spawn_digital_io(
         panic!("digital IO already started");
     }
 
-    // Configure pins as open-drain outputs
-    let output1 = new_configured_output(d0);
-    let output2 = new_configured_output(d1);
-    let output3 = new_configured_output(d2);
-    let output4 = new_configured_output(d3);
-    let output5 = new_configured_output(d4);
-    // Spawn tasks for each output
-    spawner.spawn(digital_pin_task(DigitalPinID::D0, output1)).expect("spawn digital D0 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D1, output2)).expect("spawn digital D1 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D2, output3)).expect("spawn digital D2 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D3, output4)).expect("spawn digital D3 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D4, output5)).expect("spawn digital D4 failed");
+    // Spawn tasks for each pin (all start in OpenDrain mode, floating high)
+    spawner.spawn(digital_pin_task(DigitalPinID::D0, d0.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D0 failed");
+    spawner.spawn(digital_pin_task(DigitalPinID::D1, d1.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D1 failed");
+    spawner.spawn(digital_pin_task(DigitalPinID::D2, d2.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D2 failed");
+    spawner.spawn(digital_pin_task(DigitalPinID::D3, d3.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D3 failed");
+    spawner.spawn(digital_pin_task(DigitalPinID::D4, d4.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D4 failed");
 
     DigitalIoHandle { _priv: PhantomData }
 }
@@ -119,34 +140,33 @@ pub fn spawn_digital_io(
 // HELPER FUNCTIONS
 // ============================================================================
 
-/// Helper to compute pin state from electrical readings
-fn pin_state(pin: &Flex<'_>) -> PinState {
-    match (pin.is_high(), pin.is_set_low()) {
-        (true, false) => PinState::InHigh,
-        (false, false) => PinState::InLow,
-        (false, true) => PinState::PullingDown,
-        (true, true) => PinState::FunckingBad,
+/// Helper to compute pin state from electrical readings and mode
+fn pin_state(pin: &Flex<'_>, mode: PinMode) -> PinState {
+    let is_high = pin.is_high();
+    let is_set_high = pin.is_set_high();
+    
+    match (is_high, is_set_high, mode) {
+        // Open-drain mode
+        (true, true, PinMode::OpenDrain) => PinState::InHigh,  // Floating, reading high
+        (false, true, PinMode::OpenDrain) => PinState::InLow,  // Floating, reading low
+        (false, false, PinMode::OpenDrain) => PinState::DrivingLow,
+        (true, false, PinMode::OpenDrain) => PinState::FunckingBad, // Shouldn't happen
+        
+        // Push-pull mode
+        (true, true, PinMode::PushPull) => PinState::DrivingHigh,
+        (false, false, PinMode::PushPull) => PinState::DrivingLow,
+        (false, true, PinMode::PushPull) => PinState::FunckingBad,
+        (true, false, PinMode::PushPull) => PinState::FunckingBad,
     }
-}
-
-/// Configure a pin as an open-drain output
-fn new_configured_output<Pin: OutputPin + 'static>(pin: Pin) -> Flex<'static> {
-    let mut gpio = Output::new(
-        pin,
-        Level::High,
-        OutputConfig::default().with_drive_mode(DriveMode::OpenDrain),
-    ).into_flex();
-    gpio.set_input_enable(true);
-    gpio
 }
 
 // ============================================================================
 // TASK
 // ============================================================================
 
-/// Main task that manages an output pin
+/// Main task that manages a pin
 #[embassy_executor::task(pool_size = 5)]
-async fn digital_pin_task(output_id: DigitalPinID, mut pin: Flex<'static>) -> ! {
+async fn digital_pin_task(output_id: DigitalPinID, pin: AnyPin<'static>, initial_mode: PinMode, initial_state: bool) {
     let (channel, pin_state_watch) = match output_id {
         DigitalPinID::D0 => (&DIGITAL_D0_CHANNEL, &DIGITAL_D0_STATE),
         DigitalPinID::D1 => (&DIGITAL_D1_CHANNEL, &DIGITAL_D1_STATE),
@@ -156,10 +176,25 @@ async fn digital_pin_task(output_id: DigitalPinID, mut pin: Flex<'static>) -> ! 
     };
     let sender = pin_state_watch.sender();
 
-    // Initial state
-    sender.send(pin_state(&pin));
+    // Configure pin with initial mode and state
+    let mut pin = Output::new(
+        pin,
+        match initial_state {
+            true => Level::High,
+            false => Level::Low,
+        },
+        OutputConfig::default().with_drive_mode(match initial_mode {
+            PinMode::OpenDrain => DriveMode::OpenDrain,
+            PinMode::PushPull => DriveMode::PushPull,
+        }),
+    ).into_flex();
+    pin.set_input_enable(true);
 
+    let mut current_mode = initial_mode;
     loop {
+        // Send the current state
+        sender.send((current_mode, pin_state(&pin, current_mode)));
+
         // Wait for either a command or a pin edge
         match select::select(channel.recv_request(), pin.wait_for_any_edge()).await {
             // Handle command
@@ -167,7 +202,16 @@ async fn digital_pin_task(output_id: DigitalPinID, mut pin: Flex<'static>) -> ! 
                 match command {
                     Command::SetState(state) => {
                         pin.set_level(state.into());
-                        sender.send(pin_state(&pin));
+                        channel.send_response(()).await;
+                    },
+                    Command::SetMode(mode) => {
+                        current_mode = mode;
+                        pin.apply_output_config(
+                            &OutputConfig::default().with_drive_mode(match current_mode {
+                                PinMode::OpenDrain => DriveMode::OpenDrain,
+                                PinMode::PushPull => DriveMode::PushPull,
+                            })
+                        );
                         channel.send_response(()).await;
                     },
                 }
@@ -175,7 +219,7 @@ async fn digital_pin_task(output_id: DigitalPinID, mut pin: Flex<'static>) -> ! 
             
             // Handle pin edge
             Either::Second(_) => {
-                sender.send(pin_state(&pin));
+                // do nothing, just update the state
             },
         }
     }
@@ -195,7 +239,9 @@ impl DigitalIoHandle {
     /// 
     /// # Arguments
     /// * `output_id` - Which output to control
-    /// * `bool` - If false, pulls the output low. If true, lets it float.
+    /// * `state` - Interpretation depends on current mode:
+    ///   - OpenDrain: false=pull down, true=float (can be used to read external signal)
+    ///   - PushPull: false=drive low, true=drive high
     pub async fn set(&self, output_id: DigitalPinID, state: bool) {
         match output_id {
             DigitalPinID::D0 => DIGITAL_D0_CHANNEL.transact(Command::SetState(state)).await,
@@ -206,7 +252,22 @@ impl DigitalIoHandle {
         }
     }
 
-    /// Get a receiver that will be notified when the specified pin's state changes
+    /// Set the pin mode
+    /// 
+    /// # Arguments
+    /// * `output_id` - Which pin to configure
+    /// * `mode` - The desired mode (Input, OpenDrain, or PushPull)
+    pub async fn set_mode(&self, output_id: DigitalPinID, mode: PinMode) {
+        match output_id {
+            DigitalPinID::D0 => DIGITAL_D0_CHANNEL.transact(Command::SetMode(mode)).await,
+            DigitalPinID::D1 => DIGITAL_D1_CHANNEL.transact(Command::SetMode(mode)).await,
+            DigitalPinID::D2 => DIGITAL_D2_CHANNEL.transact(Command::SetMode(mode)).await,
+            DigitalPinID::D3 => DIGITAL_D3_CHANNEL.transact(Command::SetMode(mode)).await,
+            DigitalPinID::D4 => DIGITAL_D4_CHANNEL.transact(Command::SetMode(mode)).await,
+        }
+    }
+
+    /// Get a receiver that will be notified when the specified pin's state or mode changes
     pub fn watch(
         &self,
         id: DigitalPinID,
@@ -220,9 +281,9 @@ impl DigitalIoHandle {
         }
     }
 
-    /// Get the current state of a pin
+    /// Get the current state and mode of a pin
     /// Note: Prefer watch() for updates instead of polling with this function
-    pub fn get(&self, id: DigitalPinID) -> Option<PinState> {
+    pub fn get(&self, id: DigitalPinID) -> Option<(PinMode, PinState)> {
         match id {
             DigitalPinID::D0 => DIGITAL_D0_STATE.try_get(),
             DigitalPinID::D1 => DIGITAL_D1_STATE.try_get(),
