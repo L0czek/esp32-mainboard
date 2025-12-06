@@ -985,7 +985,7 @@
                 resultDiv.innerHTML = `<div style="color: #28a745;">
                     <strong>Transfer Success</strong><br>
                     Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
-                    TX Data (len-${data.tx_data.length}): ${formatByteArray(data.tx_data)}<br>
+                    TX Data (len=${data.tx_data.length}): ${formatByteArray(data.tx_data)}<br>
                     RX Data (len=${data.rx_data.length}): ${formatByteArray(data.rx_data)}
                 </div>`;
             } else {

@@ -1,7 +1,6 @@
 use defmt::{error, info};
 use embassy_futures::select::{self, Either, Either3, Either4};
 use embassy_time::Duration;
-use rand_core::le;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use picoserve::{

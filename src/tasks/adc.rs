@@ -62,7 +62,8 @@ impl Default for VoltageMonitorCalibrationConfig {
             a1_calibration: 3100,  // 22K / 10K -> 3.2, calibrated
             a2_calibration: 3129,  // 22K / 10K -> 3.2, calibrated
             a3_calibration: 3136,  // 22K / 10K -> 3.2, calibrated
-            a4_calibration: 968,  // 10K / inf -> 1.0, calibrated
+            //a4_calibration: 968,  // 10K / inf -> 1.0, calibrated
+            a4_calibration: 14316,  // ^ with another divider on the connector-main-computer board 
         }
     }
 }

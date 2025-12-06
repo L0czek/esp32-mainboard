@@ -154,6 +154,7 @@ pub async fn power_controller_task(
             stats
         } else {
             error!("Failed to read charger stats");
+            Timer::after_millis(50).await;
             continue;
         };
 
@@ -166,6 +167,7 @@ pub async fn power_controller_task(
             };
             if let Err(e) = pctl.switch_mode(initial_mode, &stats) {
                 error!("Failed to set initial mode: {:?}", e);
+                Timer::after_millis(50).await;
                 continue;
             }
             initial_mode_set = true;
