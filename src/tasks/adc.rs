@@ -56,13 +56,13 @@ pub struct VoltageMonitorCalibrationConfig {
 impl Default for VoltageMonitorCalibrationConfig {
     fn default() -> Self {
         Self {
-            battery_voltage_calibration: 2000,
-            boost_voltage_calibration: 14000,
-            a0_calibration: 1000,
-            a1_calibration: 1000,
-            a2_calibration: 1000,
-            a3_calibration: 1000,
-            a4_calibration: 1000,
+            battery_voltage_calibration: 5624, // ?, calibrated
+            boost_voltage_calibration: 13717,  // ?, calibrated
+            a0_calibration: 4774,  // 39K / 10K -> 4.9, calibrated
+            a1_calibration: 3100,  // 22K / 10K -> 3.2, calibrated
+            a2_calibration: 3129,  // 22K / 10K -> 3.2, calibrated
+            a3_calibration: 3136,  // 22K / 10K -> 3.2, calibrated
+            a4_calibration: 968,  // 10K / inf -> 1.0, calibrated
         }
     }
 }
@@ -146,31 +146,31 @@ pub async fn adc_task(
 ) {
     let mut adc_bat_pin = config.enable_pin_with_cal::<BatVolPin, AdcCalLine<ADC1<'static>>>(
         bat_pin,
-        esp_hal::analog::adc::Attenuation::_11dB,
+        esp_hal::analog::adc::Attenuation::_0dB,
     );
     let mut adc_boost_pin = config.enable_pin_with_cal::<BoostVolPin, AdcCalLine<ADC1<'static>>>(
         boost_pin,
-        esp_hal::analog::adc::Attenuation::_11dB,
+        esp_hal::analog::adc::Attenuation::_0dB,
     );
     let mut adc_a0_pin = config.enable_pin_with_cal::<A0Pin, AdcCalLine<ADC1<'static>>>(
         a0_pin,
-        esp_hal::analog::adc::Attenuation::_11dB,
+        esp_hal::analog::adc::Attenuation::_0dB,
     );
     let mut adc_a1_pin = config.enable_pin_with_cal::<A1Pin, AdcCalLine<ADC1<'static>>>(
         a1_pin,
-        esp_hal::analog::adc::Attenuation::_11dB,
+        esp_hal::analog::adc::Attenuation::_0dB,
     );
     let mut adc_a2_pin = config.enable_pin_with_cal::<A2Pin, AdcCalLine<ADC1<'static>>>(
         a2_pin,
-        esp_hal::analog::adc::Attenuation::_11dB,
+        esp_hal::analog::adc::Attenuation::_0dB,
     );
     let mut adc_a3_pin = config.enable_pin_with_cal::<A3Pin, AdcCalLine<ADC1<'static>>>(
         a3_pin,
-        esp_hal::analog::adc::Attenuation::_11dB,
+        esp_hal::analog::adc::Attenuation::_0dB,
     );
     let mut adc_a4_pin = config.enable_pin_with_cal::<A4Pin, AdcCalLine<ADC1<'static>>>(
         a4_pin,
-        esp_hal::analog::adc::Attenuation::_11dB,
+        esp_hal::analog::adc::Attenuation::_0dB,
     );
 
     let mut adc = Adc::new(instance, config).into_async();
