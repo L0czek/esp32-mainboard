@@ -25,6 +25,7 @@ use crate::{
 pub enum PowerRequest {
     EnableBoostConverter(bool),
     CheckInterrupt,
+    SetMode(PowerControllerMode),
 }
 
 pub enum PowerResponse {
@@ -119,6 +120,15 @@ fn handle_power_controller_command(
                 Err(e) => PowerResponse::Err(e),
             }
         }
+        PowerRequest::SetMode(mode) => {
+            match pctl.read_stats() {
+                Ok(stats) => match pctl.switch_mode(mode, &stats) {
+                    Ok(()) => PowerResponse::Ok,
+                    Err(e) => PowerResponse::Err(e),
+                },
+                Err(e) => PowerResponse::Err(e),
+            }
+        }
     }
 }
 
@@ -207,6 +217,10 @@ impl PowerHandle {
 
     pub async fn set_boost_converter(&self, enable: bool) -> PowerResponse {
         self.transact(PowerRequest::EnableBoostConverter(enable)).await
+    }
+
+    pub async fn set_mode(&self, mode: PowerControllerMode) -> PowerResponse {
+        self.transact(PowerRequest::SetMode(mode)).await
     }
 
     pub async fn check_interrupt(&self) -> PowerResponse {

@@ -20,6 +20,7 @@ use mainboard::tasks::{
     PinMode,
 };
 use mainboard::power::PowerControllerStats;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -96,6 +97,7 @@ struct AppProps {
     digital: DigitalIoHandle,
     adc: AdcHandle,
     uart: UartHandle,
+    shutdown: ShutdownHandle,
 }
 
 #[derive(Clone, Copy)]
@@ -104,6 +106,22 @@ struct WebsocketHandler {
     digital: DigitalIoHandle,
     adc: AdcHandle,
     uart: UartHandle,
+    shutdown: ShutdownHandle,
+}
+
+#[derive(Clone, Copy)]
+pub struct ShutdownHandle {
+    signal: &'static Signal<CriticalSectionRawMutex, ()>,
+}
+
+impl ShutdownHandle {
+    pub const fn new(signal: &'static Signal<CriticalSectionRawMutex, ()>) -> Self {
+        Self { signal }
+    }
+
+    pub fn request_shutdown(&self) {
+        self.signal.signal(());
+    }
 }
 
 impl AppBuilder for AppProps {
@@ -115,6 +133,7 @@ impl AppBuilder for AppProps {
             digital: self.digital,
             adc: self.adc,
             uart: self.uart,
+            shutdown: self.shutdown,
         };
 
         Router::new()
@@ -209,6 +228,8 @@ enum WebSocketCommand {
     I2cTransfer { address: u8, tx_data: Vec<u8>, rx_len: u8 },
     #[serde(rename = "uart_send")]
     UartSend { bytes: Vec<u8> },
+    #[serde(rename = "shutdown")]
+    Shutdown,
 }
 
 #[derive(Serialize)]
@@ -458,6 +479,10 @@ impl ws::WebSocketCallback for WebsocketHandler {
                                     info!("UART send bytes request: {} bytes", bytes.len());
                                     self.uart.send(&bytes).await;
                                 }
+                                WebSocketCommand::Shutdown => {
+                                    info!("Shutdown requested from Web UI");
+                                    self.shutdown.request_shutdown();
+                                }
                             }
                         }
                         continue
@@ -582,6 +607,7 @@ pub async fn run_server(
     adc: AdcHandle,
     digital: DigitalIoHandle,
     uart: UartHandle,
+    shutdown: ShutdownHandle,
 ) {
     let WifiResources {
         ap_stack,
@@ -596,6 +622,7 @@ pub async fn run_server(
             digital,
             adc,
             uart,
+            shutdown,
         }
         .build_app()
     );

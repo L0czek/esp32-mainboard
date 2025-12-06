@@ -483,6 +483,12 @@
         </div>
     </div>
     
+    <section class="control-panel" style="background-color: #fff3e0; border: 1px solid #ff9800;">
+        <h2>Shutdown</h2>
+        <p style="margin: 0 0 10px 0; font-size: 14px; color: #8a6d3b;">Puts the CPU into deep sleep with no wake source. Hardware reset is required to start again.</p>
+        <button class="button off" onclick="requestShutdown()" style="width: 100%;">Shutdown CPU</button>
+    </section>
+
     <div id="status" class="status"></div>
 
     <script>
@@ -822,6 +828,33 @@
                 toggleButton.classList.add('off');
             else
                 toggleButton.classList.remove('off');
+        }
+
+        function requestShutdown() {
+            const statusElement = document.getElementById('status');
+
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                statusElement.style.display = 'block';
+                statusElement.textContent = 'Error: Not connected to server';
+                statusElement.style.backgroundColor = '#ffebee';
+                setTimeout(() => statusElement.style.display = 'none', 2000);
+                return;
+            }
+
+            const proceed = confirm('Shutdown CPU now? Device will require a hardware reset to start again.');
+            if (!proceed) return;
+
+            statusElement.style.display = 'block';
+            statusElement.textContent = 'Sending shutdown request...';
+            statusElement.style.backgroundColor = '#ffe0e0';
+
+            try {
+                socket.send(JSON.stringify({ type: 'shutdown' }));
+            } catch (error) {
+                statusElement.textContent = `Error: ${error.message}`;
+                statusElement.style.backgroundColor = '#ffebee';
+                setTimeout(() => statusElement.style.display = 'none', 3000);
+            }
         }
         
         // I2C Functions

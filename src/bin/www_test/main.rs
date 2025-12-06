@@ -20,23 +20,30 @@ use mainboard::tasks::{
     spawn_power_controller,
     spawn_uart_tasks,
     AdcHandle,
+    PowerResponse,
     PowerStateReceiver,
     VoltageMonitorCalibrationConfig,
+    DigitalPinID,
+    PinMode,
 };
 use mainboard::create_board;
-use mainboard::power::PowerControllerIO;
+use mainboard::power::{PowerControllerIO, PowerControllerMode};
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
-use esp_hal::clock::CpuClock;
+use esp_hal::{clock::CpuClock, rtc_cntl::Rtc};
 use esp_hal::timer::systimer::SystemTimer;
 use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
+use crate::server::ShutdownHandle;
 
 // StaticCell for WiFi controller
 static ESP_WIFI_CTRL: StaticCell<esp_wifi::EspWifiController<'static>> = StaticCell::new();
+static SHUTDOWN_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -124,18 +131,55 @@ async fn main(spawner: Spawner) {
 
     // Start the web server
     info!("Starting web server...");
-    server::run_server(spawner, &wifi_resources, power, adc, digital, uart_handle).await;
+    let shutdown_handle = ShutdownHandle::new(&SHUTDOWN_SIGNAL);
+    server::run_server(spawner, &wifi_resources, power, adc, digital, uart_handle, shutdown_handle).await;
     info!("Web server started!");
 
     // Main loop
     loop {
-        info!(
-            "Server running... AP IP: {:?}, STA IP: {:?}",
-            wifi_resources.ap_stack.config_v4().map(|c| c.address),
-            wifi_resources.sta_stack.config_v4().map(|c| c.address)
-        );
-        Timer::after(Duration::from_secs(10)).await;
+        match select(Timer::after(Duration::from_secs(10)), SHUTDOWN_SIGNAL.wait()).await {
+            Either::First(_) => {
+                info!(
+                    "Server running... AP IP: {:?}, STA IP: {:?}",
+                    wifi_resources.ap_stack.config_v4().map(|c| c.address),
+                    wifi_resources.sta_stack.config_v4().map(|c| c.address)
+                );
+            }
+            Either::Second(_) => {
+                info!("Shutdown signal received");
+                break;
+            }
+        }
     }
+
+    // Perform shutdown sequence
+    info!("Executing shutdown sequence: disable boost, set charger to Charging, float GPIOs");
+    match power.set_boost_converter(false).await {
+        PowerResponse::Ok => info!("Boost converter disabled"),
+        PowerResponse::Err(e) => info!("Failed to disable boost converter: {:?}", e),
+    }
+
+    let pins = [
+        DigitalPinID::D0,
+        DigitalPinID::D1,
+        DigitalPinID::D2,
+        DigitalPinID::D3,
+        DigitalPinID::D4,
+    ];
+
+    for pin in pins {
+        digital.set_mode(pin, PinMode::OpenDrain).await;
+        digital.set(pin, true).await;
+    }
+
+    match power.set_mode(PowerControllerMode::Charging).await {
+        PowerResponse::Ok => info!("Charger set to Charging mode"),
+        PowerResponse::Err(e) => info!("Failed to set Charging mode: {:?}", e),
+    }
+
+    info!("Entering deep sleep (shutdown)");
+    let mut rtc = Rtc::new(peripherals.LPWR);
+    rtc.sleep_deep(&[]);
 }
 
 #[embassy_executor::task]

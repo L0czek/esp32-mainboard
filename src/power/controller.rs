@@ -223,6 +223,7 @@ impl Default for PowerControllerConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PowerControllerMode {
     Passive,
     Charging,
