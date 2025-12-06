@@ -1,6 +1,7 @@
 use defmt::{error, info};
 use embassy_futures::select::{self, Either, Either3, Either4};
 use embassy_time::Duration;
+use rand_core::le;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use picoserve::{
@@ -205,10 +206,8 @@ enum WebSocketCommand {
     Power { action: String, value: bool },
     #[serde(rename = "i2c_scan")]
     I2cScan,
-    #[serde(rename = "i2c_read")]
-    I2cRead { address: u8, register: u8 },
-    #[serde(rename = "i2c_write")]
-    I2cWrite { address: u8, register: u8, value: u8 },
+    #[serde(rename = "i2c_transfer")]
+    I2cTransfer { address: u8, tx_data: Vec<u8>, rx_len: u8 },
     #[serde(rename = "uart_send")]
     UartSend { bytes: Vec<u8> },
 }
@@ -226,10 +225,8 @@ enum OutgoingMessage<'a> {
     AdcBuffer(AdcBufferResponse),
     #[serde(rename = "i2c_scan_result")]
     I2cScanResult { devices: alloc::vec::Vec<u8> },
-    #[serde(rename = "i2c_read_result")]
-    I2cReadResult { address: u8, register: u8, value: u8, success: bool },
-    #[serde(rename = "i2c_write_result")]
-    I2cWriteResult { address: u8, register: u8, success: bool },
+    #[serde(rename = "i2c_transfer_result")]
+    I2cTransferResult { address: u8, tx_data: Option<alloc::vec::Vec<u8>>, rx_data: Option<alloc::vec::Vec<u8>>, success: bool },
     #[serde(rename = "uart_receive")]
     UartReceive { bytes: alloc::vec::Vec<u8> },
 }
@@ -252,34 +249,46 @@ async fn i2c_scan() -> Vec<u8> {
     devices
 }
 
-async fn i2c_read(address: u8, register: u8) -> Result<u8, ()> {
+async fn i2c_transfer(address: u8, tx_data: &[u8], rx_len: u8) -> Result<Vec<u8>, ()> {
     use embedded_hal::i2c::I2c as I2cTrait;
     let mut i2c = mainboard::board::acquire_i2c_bus();
-    let mut buffer = [0u8; 1];
-    
-    match i2c.write_read(address, &[register], &mut buffer) {
-        Ok(_) => {
-            info!("I2C read: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, buffer[0]);
-            Ok(buffer[0])
-        }
-        Err(_) => {
-            error!("I2C read failed: addr=0x{:02X}, reg=0x{:02X}", address, register);
-            Err(())
-        }
-    }
-}
+    let requested_rx = rx_len;
+    let tx_len = tx_data.len();
 
-async fn i2c_write(address: u8, register: u8, value: u8) -> Result<(), ()> {
-    use embedded_hal::i2c::I2c as I2cTrait;
-    let mut i2c = mainboard::board::acquire_i2c_bus();
-    
-    match i2c.write(address, &[register, value]) {
-        Ok(_) => {
-            info!("I2C write: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, value);
-            Ok(())
+    let result= if requested_rx == 0 {
+        let res = i2c.write(address, tx_data).map(|_| Vec::new());
+        res
+    } else {
+        let mut buffer = Vec::new();
+        buffer.resize(requested_rx as usize, 0);
+
+        let res = if tx_data.is_empty() {
+            i2c.read(address, &mut buffer)
+        } else {
+            i2c.write_read(address, tx_data, &mut buffer)
+        }
+        .map(|_| buffer);
+        res
+    };
+
+    match result {
+        Ok(rx_data) => {
+            info!(
+                "I2C transfer success: addr=0x{:02X}, tx_len={}, rx_len={}, rx_data_len={}",
+                address,
+                tx_len,
+                requested_rx,
+                rx_data.len()
+            );
+            Ok(rx_data)
         }
         Err(_) => {
-            error!("I2C write failed: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, value);
+            error!(
+                "I2C transfer failed: addr=0x{:02X}, tx_len={}, rx_len={}",
+                address,
+                tx_len,
+                requested_rx
+            );
             Err(())
         }
     }
@@ -419,35 +428,32 @@ impl ws::WebSocketCallback for WebsocketHandler {
                                     let devices = i2c_scan().await;
                                     let _ = tx.send_json(OutgoingMessage::I2cScanResult { devices }).await;
                                 }
-                                WebSocketCommand::I2cRead { address, register } => {
-                                    info!("I2C read request: addr=0x{:02X}, reg=0x{:02X}", address, register);
-                                    match i2c_read(address, register).await {
-                                        Ok(value) => {
-                                            let _ = tx.send_json(OutgoingMessage::I2cReadResult { 
-                                                address, 
-                                                register, 
-                                                value, 
-                                                success: true 
+                                WebSocketCommand::I2cTransfer { address, tx_data, rx_len } => {
+                                    info!("I2C transfer request: addr=0x{:02X}, tx_len={}, rx_len={}", address, tx_data.len(), rx_len);
+                                    let success = match i2c_transfer(address, &tx_data, rx_len).await {
+                                        Ok(rx_data) => {
+                                            let _ = tx.send_json(OutgoingMessage::I2cTransferResult {
+                                                address,
+                                                tx_data: Some(tx_data.clone()),
+                                                rx_data: Some(rx_data),
+                                                success: true,
                                             }).await;
+                                            true
                                         }
                                         Err(_) => {
-                                            let _ = tx.send_json(OutgoingMessage::I2cReadResult { 
-                                                address, 
-                                                register, 
-                                                value: 0, 
-                                                success: false 
+                                            let _ = tx.send_json(OutgoingMessage::I2cTransferResult {
+                                                address,
+                                                tx_data: None,
+                                                rx_data: None,
+                                                success: false,
                                             }).await;
+                                            false
                                         }
+                                    };
+
+                                    if !success {
+                                        info!("I2C transfer failed to addr=0x{:02X}", address);
                                     }
-                                }
-                                WebSocketCommand::I2cWrite { address, register, value } => {
-                                    info!("I2C write request: addr=0x{:02X}, reg=0x{:02X}, value=0x{:02X}", address, register, value);
-                                    let success = i2c_write(address, register, value).await.is_ok();
-                                    let _ = tx.send_json(OutgoingMessage::I2cWriteResult { 
-                                        address, 
-                                        register, 
-                                        success 
-                                    }).await;
                                 }
                                 WebSocketCommand::UartSend { bytes } => {
                                     info!("UART send bytes request: {} bytes", bytes.len());

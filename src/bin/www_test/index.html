@@ -300,24 +300,24 @@
         </div>
         
         <div class="stats-panel" style="margin-top: 15px;">
-            <h3>Read/Write Register</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <h3>Transfer</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
                 <div>
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">Device Address</label>
                     <input type="text" id="i2c-address" placeholder="0x20" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
                 <div>
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Register</label>
-                    <input type="text" id="i2c-register" placeholder="0x00" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Value (Write)</label>
-                    <input type="text" id="i2c-value" placeholder="0xFF" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Bytes to Receive</label>
+                    <input type="number" id="i2c-rx-len" min="0" max="255" placeholder="0" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
             </div>
+            <div style="margin-bottom: 10px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Bytes to Send</label>
+                <textarea id="i2c-bytes" placeholder="e.g., 0x01 0x02 03 04" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; min-height: 60px;"></textarea>
+                <div style="margin-top: 5px; color: #666; font-size: 12px;">Provide space or comma separated hex/decimal values. Leave empty for a pure read.</div>
+            </div>
             <div class="button-group" style="gap: 10px;">
-                <button class="button" onclick="readI2C()" style="flex: 1;">Read</button>
-                <button class="button" onclick="writeI2C()" style="flex: 1; background-color: #ff9800;">Write</button>
+                <button class="button" onclick="sendI2CTransfer()" style="flex: 1;">Send Transfer</button>
             </div>
             <div id="i2c-result" style="margin-top: 15px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; font-family: monospace; min-height: 40px;">
                 <div style="color: #666; font-style: italic;">Results will appear here</div>
@@ -840,83 +840,79 @@
             socket.send(JSON.stringify(command));
         }
         
-        function readI2C() {
+        function sendI2CTransfer() {
             const addressInput = document.getElementById('i2c-address').value.trim();
-            const registerInput = document.getElementById('i2c-register').value.trim();
+            const txInput = document.getElementById('i2c-bytes').value.trim();
+            const rxLenInput = document.getElementById('i2c-rx-len').value.trim();
             const resultDiv = document.getElementById('i2c-result');
-            
-            if (!addressInput || !registerInput) {
-                resultDiv.innerHTML = '<div style="color: #dc3545;">Please enter both address and register</div>';
-                return;
-            }
-            
+
             const address = parseHexValue(addressInput);
-            const register = parseHexValue(registerInput);
-            
-            if (address === null || register === null || address > 0x7F || register > 0xFF) {
-                resultDiv.innerHTML = '<div style="color: #dc3545;">Invalid address or register (use hex like 0x20 or decimal)</div>';
+            const rxLen = rxLenInput === '' ? 0 : parseInt(rxLenInput, 10);
+            const txData = parseHexByteArray(txInput);
+
+            if (address === null || address > 0x7F) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Invalid device address (use hex like 0x20 or decimal)</div>';
                 return;
             }
-            
+
+            if (txData === null) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Invalid TX bytes. Use space/comma separated hex (0x12) or decimal.</div>';
+                return;
+            }
+
+            if (isNaN(rxLen) || rxLen < 0 || rxLen > 255) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Invalid RX length (0-255)</div>';
+                return;
+            }
+
+            if (txData.length === 0 && rxLen === 0) {
+                resultDiv.innerHTML = '<div style="color: #dc3545;">Provide bytes to send or a receive length</div>';
+                return;
+            }
+
             if (!socket || socket.readyState !== WebSocket.OPEN) {
                 resultDiv.innerHTML = '<div style="color: #dc3545;">Error: Not connected to server</div>';
                 return;
             }
-            
-            resultDiv.innerHTML = '<div style="color: #007bff;">Reading...</div>';
-            
+
+            resultDiv.innerHTML = '<div style="color: #007bff;">Sending transfer...</div>';
+
             const command = {
-                type: 'i2c_read',
+                type: 'i2c_transfer',
                 address: address,
-                register: register
+                tx_data: txData,
+                rx_len: rxLen
             };
             socket.send(JSON.stringify(command));
         }
-        
-        function writeI2C() {
-            const addressInput = document.getElementById('i2c-address').value.trim();
-            const registerInput = document.getElementById('i2c-register').value.trim();
-            const valueInput = document.getElementById('i2c-value').value.trim();
-            const resultDiv = document.getElementById('i2c-result');
-            
-            if (!addressInput || !registerInput || !valueInput) {
-                resultDiv.innerHTML = '<div style="color: #dc3545;">Please enter address, register, and value</div>';
-                return;
-            }
-            
-            const address = parseHexValue(addressInput);
-            const register = parseHexValue(registerInput);
-            const value = parseHexValue(valueInput);
-            
-            if (address === null || register === null || value === null || address > 0x7F || register > 0xFF || value > 0xFF) {
-                resultDiv.innerHTML = '<div style="color: #dc3545;">Invalid address, register, or value (use hex like 0x20 or decimal)</div>';
-                return;
-            }
-            
-            if (!socket || socket.readyState !== WebSocket.OPEN) {
-                resultDiv.innerHTML = '<div style="color: #dc3545;">Error: Not connected to server</div>';
-                return;
-            }
-            
-            resultDiv.innerHTML = '<div style="color: #007bff;">Writing...</div>';
-            
-            const command = {
-                type: 'i2c_write',
-                address: address,
-                register: register,
-                value: value
-            };
-            socket.send(JSON.stringify(command));
-        }
-        
+
         function parseHexValue(str) {
             str = str.trim();
+            if (str === '') return null;
             if (str.startsWith('0x') || str.startsWith('0X')) {
                 const val = parseInt(str.substring(2), 16);
                 return isNaN(val) ? null : val;
             }
             const val = parseInt(str, 10);
             return isNaN(val) ? null : val;
+        }
+
+        function parseHexByteArray(str) {
+            const cleaned = str.trim();
+            if (cleaned === '') return [];
+
+            const parts = cleaned.split(/[,\s]+/).filter(p => p.length > 0);
+            const bytes = [];
+
+            for (const part of parts) {
+                const value = parseHexValue(part);
+                if (value === null || value < 0 || value > 255) {
+                    return null;
+                }
+                bytes.push(value);
+            }
+
+            return bytes;
         }
         
         function renderI2CGrid(devices) {
@@ -975,41 +971,27 @@
         function selectI2CDevice(address) {
             document.getElementById('i2c-address').value = '0x' + address.toString(16).toUpperCase().padStart(2, '0');
             document.getElementById('i2c-result').innerHTML = '<div style="color: #666; font-style: italic;">Device 0x' + 
-                address.toString(16).toUpperCase().padStart(2, '0') + ' selected. Enter register to read/write.</div>';
+                address.toString(16).toUpperCase().padStart(2, '0') + ' selected. Add bytes to send and/or a receive length.</div>';
         }
         
-        function handleI2CReadResult(data) {
+        function formatByteArray(bytes) {
+            if (!bytes || bytes.length === 0) return '(none)';
+            return bytes.map(b => '0x' + b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+        }
+
+        function handleI2CTransferResult(data) {
             const resultDiv = document.getElementById('i2c-result');
             if (data.success) {
                 resultDiv.innerHTML = `<div style="color: #28a745;">
-                    <strong>Read Success</strong><br>
+                    <strong>Transfer Success</strong><br>
                     Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
-                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}<br>
-                    Value: 0x${data.value.toString(16).toUpperCase().padStart(2, '0')} (${data.value})
+                    TX Data (len-${data.tx_data.length}): ${formatByteArray(data.tx_data)}<br>
+                    RX Data (len=${data.rx_data.length}): ${formatByteArray(data.rx_data)}
                 </div>`;
             } else {
                 resultDiv.innerHTML = `<div style="color: #dc3545;">
-                    <strong>Read Failed</strong><br>
+                    <strong>Transfer Failed</strong><br>
                     Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
-                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}<br>
-                    Error: Communication failed
-                </div>`;
-            }
-        }
-        
-        function handleI2CWriteResult(data) {
-            const resultDiv = document.getElementById('i2c-result');
-            if (data.success) {
-                resultDiv.innerHTML = `<div style="color: #28a745;">
-                    <strong>Write Success</strong><br>
-                    Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
-                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}
-                </div>`;
-            } else {
-                resultDiv.innerHTML = `<div style="color: #dc3545;">
-                    <strong>Write Failed</strong><br>
-                    Address: 0x${data.address.toString(16).toUpperCase().padStart(2, '0')}<br>
-                    Register: 0x${data.register.toString(16).toUpperCase().padStart(2, '0')}<br>
                     Error: Communication failed
                 </div>`;
             }
@@ -1206,11 +1188,8 @@
                             statusElement.style.color = '#28a745';
                             break;
                         }
-                        case 'i2c_read_result':
-                            handleI2CReadResult(data);
-                            break;
-                        case 'i2c_write_result':
-                            handleI2CWriteResult(data);
+                        case 'i2c_transfer_result':
+                            handleI2CTransferResult(data);
                             break;
                         case 'uart_receive':
                             handleUartReceive(data);
