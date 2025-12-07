@@ -25,7 +25,7 @@ use crate::{
 pub enum PowerRequest {
     EnableBoostConverter(bool),
     CheckInterrupt,
-    SetMode(PowerControllerMode),
+    EnterShippingMode,
 }
 
 pub enum PowerResponse {
@@ -120,9 +120,9 @@ fn handle_power_controller_command(
                 Err(e) => PowerResponse::Err(e),
             }
         }
-        PowerRequest::SetMode(mode) => {
+        PowerRequest::EnterShippingMode => {
             match pctl.read_stats() {
-                Ok(stats) => match pctl.switch_mode(mode, &stats) {
+                Ok(stats) => match pctl.enter_shipping_mode(&stats) {
                     Ok(()) => PowerResponse::Ok,
                     Err(e) => PowerResponse::Err(e),
                 },
@@ -219,12 +219,12 @@ impl PowerHandle {
         self.transact(PowerRequest::EnableBoostConverter(enable)).await
     }
 
-    pub async fn set_mode(&self, mode: PowerControllerMode) -> PowerResponse {
-        self.transact(PowerRequest::SetMode(mode)).await
-    }
-
     pub async fn check_interrupt(&self) -> PowerResponse {
         self.transact(PowerRequest::CheckInterrupt).await
+    }
+
+    pub async fn enter_shipping_mode(&self) -> PowerResponse {
+        self.transact(PowerRequest::EnterShippingMode).await
     }
 
     pub fn state_receiver(&self) -> Option<PowerStateReceiver> {

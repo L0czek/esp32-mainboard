@@ -485,8 +485,10 @@
     
     <section class="control-panel" style="background-color: #fff3e0; border: 1px solid #ff9800;">
         <h2>Shutdown</h2>
-        <p style="margin: 0 0 10px 0; font-size: 14px; color: #8a6d3b;">Puts the CPU into deep sleep with no wake source. Hardware reset is required to start again.</p>
-        <button class="button off" onclick="requestShutdown()" style="width: 100%;">Shutdown CPU</button>
+        <p style="margin: 0 0 10px 0; font-size: 14px; color: #8a6d3b;">Put the charger into shipping mode and shut down the CPU.</p>
+        <p style="margin: 0 0 10px 0; font-size: 14px; color: #8a6d3b;">Device will require a wakeup by plugging in a USB cable to start again.</p>
+        <p style="margin: 0 0 10px 0; font-size: 14px; color: #8a6d3b;">If the cable is currently plugged in, the shutdown will take effect after unplugging it.</p>
+        <button class="button off" onclick="requestShutdown()" style="width: 100%;">Shutdown</button>
     </section>
 
     <div id="status" class="status"></div>
@@ -841,7 +843,7 @@
                 return;
             }
 
-            const proceed = confirm('Shutdown CPU now? Device will require a hardware reset to start again.');
+            const proceed = confirm('Shutdown now? Device will require a wakeup by plugging in a USB cable to start again.');
             if (!proceed) return;
 
             statusElement.style.display = 'block';

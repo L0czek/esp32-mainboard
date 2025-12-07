@@ -448,4 +448,17 @@ impl<I2C: I2c> PowerController<I2C> {
     pub fn is_boost_converter_enabled(&self) -> bool {
         self.boost_converter_enable.is_set_high()
     }
+
+    pub fn enter_shipping_mode(&mut self, stats: &PowerControllerStats) -> PowerControllerResult<(), I2C> {
+        self.switch_mode(PowerControllerMode::Charging, stats)?;
+
+        self.charger
+            .transact(|regs: &mut ConfigurationRegisters| {
+                regs.CTTCR.set_watchdog_timer(WatchdogTimer::Disabled);
+                regs.MOCR.disable_batfet();
+            })
+            .map_err(PowerControllerError::I2cBusError)?;
+
+        Ok(())
+    }
 }

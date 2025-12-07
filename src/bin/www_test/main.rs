@@ -27,7 +27,7 @@ use mainboard::tasks::{
     PinMode,
 };
 use mainboard::create_board;
-use mainboard::power::{PowerControllerIO, PowerControllerMode};
+use mainboard::power::PowerControllerIO;
 
 use defmt::info;
 use embassy_executor::Spawner;
@@ -172,9 +172,9 @@ async fn main(spawner: Spawner) {
         digital.set(pin, true).await;
     }
 
-    match power.set_mode(PowerControllerMode::Charging).await {
-        PowerResponse::Ok => info!("Charger set to Charging mode"),
-        PowerResponse::Err(e) => info!("Failed to set Charging mode: {:?}", e),
+    match power.enter_shipping_mode().await {
+        PowerResponse::Ok => info!("Charger set to shipping mode"),
+        PowerResponse::Err(e) => info!("Failed to enter shipping mode: {:?}", e),
     }
 
     info!("Entering deep sleep (shutdown)");
