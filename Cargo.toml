@@ -12,6 +12,10 @@ path = "./src/bin/empty/main.rs"
 name = "www_test"
 path = "./src/bin/www_test/main.rs"
 
+[[bin]]
+name = "railclock"
+path = "./src/bin/railclock/main.rs"
+
 [dependencies]
 defmt = "1.0.1"
 esp-bootloader-esp-idf = { version = "0.2.0", features = ["esp32c6"] }
@@ -22,9 +26,11 @@ esp-hal = { version = "=1.0.0-rc.0", features = [
 ] }
 
 embassy-net = { version = "0.7.0", features = [
+  "dns",
   "defmt",
   "dhcpv4",
   "medium-ethernet",
+  "proto-ipv4",
   "tcp",
   "udp",
 ] }
@@ -77,6 +83,9 @@ serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 embassy-sync = { version = "0.7.0", default-features = false }
 embassy-futures = { version = "0.1.1", features = ["defmt"] }
 nb = { version = "1.1.0", features = ["defmt-0-3"] }
+sntpc = { version = "0.7",  default-features = false, features = ["embassy-socket", "defmt"] }
+mcp794xx = "0.4.0"
+
 
 
 [profile.dev]
