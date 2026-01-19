@@ -8,7 +8,11 @@ use mcp794xx::Mcp794xx;
 use mcp794xx::NaiveDateTime;
 use mcp794xx::DateTimeAccess;
 use mcp794xx::ic::Mcp79400;
+use defmt::info;
+use defmt::Format;
+use alloc::format;
 
+#[derive(Debug)]
 pub(crate) enum RtcRequest {
     GetDateTime(),
     SetDateTime(NaiveDateTime),
@@ -86,11 +90,13 @@ impl RtcClient {
     }
 
     pub async fn read_nonvolatile(&self, addr: u8, size: u8) -> Result<Vec<u8>, RtcClientError> {
-        match RTC_CHANNEL.transact(RtcRequest::ReadNonvolatileMem { addr, size }).await {
-            RtcResponse::NonvolatileMem(v) => Ok(v),
-            RtcResponse::RtcError(e) => Err(RtcClientError::Rtc(e)),
-            _ => Err(RtcClientError::UnexpectedResponse),
-        }
+        info!("Reading RTC state");
+        // match RTC_CHANNEL.transact(RtcRequest::ReadNonvolatileMem { addr, size }).await {
+        //     RtcResponse::NonvolatileMem(v) => Ok(v),
+        //     RtcResponse::RtcError(e) => Err(RtcClientError::Rtc(e)),
+        //     _ => Err(RtcClientError::UnexpectedResponse),
+        // }
+        Ok(vec![1])
     }
 
     pub async fn write_nonvolatile(&self, addr: u8, data: &[u8]) -> Result<(), RtcClientError> {

@@ -1,12 +1,12 @@
 use alloc::format;
-use defmt::{error, info, Format};
+use defmt::error;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, semaphore::{GreedySemaphore, Semaphore}};
 use embassy_time::Timer;
 use esp_hal::gpio::{Output, OutputConfig};
 use mainboard::{board::{Motor0Pin, Motor1Pin}, tasks::PowerHandle};
 use mcp794xx::Timelike;
-use serde::{Deserialize, Serialize};
+use rkyv::{rancor::Error, Archive, Deserialize, Serialize};
 
 use crate::{CLOCK_DRIVER, rtc::RTC};
 
@@ -14,7 +14,8 @@ pub(crate) struct ClockDriver {
     semaphore: GreedySemaphore<CriticalSectionRawMutex>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Archive, Serialize, Deserialize, PartialEq)]
+#[rkyv(compare(PartialEq), derive(Debug))]
 pub(crate) struct ClockDriverState {
     pin: u8,
     time: Option<i64>
@@ -26,6 +27,18 @@ impl Default for ClockDriverState {
             pin: 0u8,
             time: None
         }
+    }
+}
+
+impl ClockDriverState {
+    pub fn from(v: &ArchivedClockDriverState) -> Self {
+        let time: Option<i64> = if v.time.is_some() {
+            Some(v.time.unwrap().into())
+        } else {
+            None
+        };
+
+        Self { pin: v.pin, time }
     }
 }
 
@@ -47,7 +60,7 @@ impl ClockDriver {
 
 async fn read_rtc_state() -> ClockDriverState {
     match RTC.read_nonvolatile(0u8, 64u8).await {
-        Ok(data) => serde_json::from_slice(&data).unwrap_or_default(),
+        Ok(data) => rkyv::access::<ArchivedClockDriverState, Error>(data.as_ref()).map(|i| ClockDriverState::from(i)).unwrap_or_default(),
         Err(e) => {
             error!("Failed to read the rtc sram memory {}", format!("{:?}", e).as_str());
             Default::default()
@@ -56,7 +69,7 @@ async fn read_rtc_state() -> ClockDriverState {
 }
 
 async fn write_rtc_state(state: &ClockDriverState) {
-    let data = match serde_json::to_vec(state) {
+    let data = match rkyv::to_bytes::<Error>(state) {
         Ok(v) => v,
         Err(e) => {
             error!("Failed to serialzie to json, {}", format!("{:?}", e).as_str());

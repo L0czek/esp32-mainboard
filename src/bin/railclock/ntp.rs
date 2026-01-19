@@ -4,9 +4,10 @@ use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_time::{Duration, Instant, Timer};
 use mcp794xx::NaiveDateTime;
 use smoltcp::wire::DnsQueryType;
-use sntpc::{NtpContext, NtpTimestampGenerator, get_time};
+use sntpc::{NtpContext, NtpTimestampGenerator, NtpUdpSocket, get_time};
 use defmt::{info, error};
 
+use crate::ESP_WIFI_RES;
 use crate::rtc::RTC;
 use crate::wifi::WifiResources;
 use crate::config::NTP_SERVER;
@@ -37,9 +38,8 @@ impl NtpTimestampGenerator for Timestamp {
 }
 
 #[embassy_executor::task]
-pub(crate) async fn sync_time_with_ntp() {
-    let WifiResources { sta_stack } = crate::WIFI_RESOURCES.get().await;
-    info!("test");
+pub(crate) async fn sync_time_with_ntp(stack: &'static WifiResources) {
+    let WifiResources { sta_stack } = stack;
     let mut rx_meta = [PacketMetadata::EMPTY; 16];
     let mut tx_meta = [PacketMetadata::EMPTY; 16];
     let mut rx_buf = [0u8; 4096];
@@ -55,7 +55,6 @@ pub(crate) async fn sync_time_with_ntp() {
     let ntp_addrs = sta_stack
         .dns_query(NTP_SERVER, DnsQueryType::A)
         .await;
-    info!("{:?}", ntp_addrs);
     let ntp_addrs = ntp_addrs.unwrap();
 
     if ntp_addrs.is_empty() {
@@ -71,7 +70,7 @@ pub(crate) async fn sync_time_with_ntp() {
 
         match result {
             Ok(time) => {
-                let datetime = NaiveDateTime::from_timestamp(time.sec() as i64, time.sec_fraction() * 1_000);
+                let datetime = NaiveDateTime::from_timestamp(time.sec() as i64, time.sec_fraction()); // TODO: fix this
                 RTC.set_datetime(datetime).await;
                 info!("Time: {:?}", time);
             }
