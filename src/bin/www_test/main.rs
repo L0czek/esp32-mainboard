@@ -8,48 +8,34 @@
 )]
 
 mod config;
-mod server;
+// mod server; // Disabled - picoserve needs migration
 mod wifi;
 
-use esp_hal::analog::adc::AdcConfig;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
-use mainboard::tasks::{
-    spawn_adc_task,
-    spawn_digital_io,
-    spawn_ext_interrupt_task,
-    spawn_power_controller,
-    spawn_uart_tasks,
-    AdcHandle,
-    PowerResponse,
-    PowerStateReceiver,
-    VoltageMonitorCalibrationConfig,
-    DigitalPinID,
-    PinMode,
-};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
+use mainboard::tasks::{spawn_ext_interrupt_task, spawn_power_controller, PowerStateReceiver};
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
-use esp_hal::{clock::CpuClock, rtc_cntl::Rtc};
-use esp_hal::timer::systimer::SystemTimer;
+use esp_hal::clock::CpuClock;
 use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
-use crate::server::ShutdownHandle;
 
 // StaticCell for WiFi controller
-static ESP_WIFI_CTRL: StaticCell<esp_wifi::EspWifiController<'static>> = StaticCell::new();
-static SHUTDOWN_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[esp_hal_embassy::main]
+#[allow(
+    clippy::large_stack_frames,
+    reason = "it's not unusual to allocate larger buffers etc. in main"
+)]
+#[esp_rtos::main]
 async fn main(spawner: Spawner) {
     // Initialize RTT for logging
     rtt_target::rtt_init_defmt!();

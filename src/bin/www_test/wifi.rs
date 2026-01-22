@@ -4,9 +4,8 @@ use defmt::info;
 use embassy_net::{Ipv4Cidr, Runner, StackResources, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
-use esp_wifi::wifi::{
-    AccessPointConfiguration, AuthMethod, ClientConfiguration, Configuration, WifiController,
-    WifiDevice, WifiEvent, WifiState,
+use esp_radio::wifi::{
+    AccessPointConfig, AuthMethod, ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent,
 };
 use rand_core::RngCore as _;
 use static_cell::StaticCell;
@@ -26,13 +25,13 @@ pub struct WifiResources {
 /// Returns the WiFi resources needed by the server
 pub async fn initialize_wifi(
     spawner: embassy_executor::Spawner,
-    esp_wifi_ctrl: &'static esp_wifi::EspWifiController<'static>,
+    esp_wifi_ctrl: &'static esp_radio::Controller<'static>,
     wifi_peripheral: esp_hal::peripherals::WIFI<'static>,
     rng: &mut Rng,
 ) -> WifiResources {
     // Initialize WiFi
     let (mut controller, interfaces) =
-        esp_wifi::wifi::new(&esp_wifi_ctrl, wifi_peripheral).unwrap();
+        esp_radio::wifi::new(esp_wifi_ctrl, wifi_peripheral, Default::default()).unwrap();
 
     // Get WiFi devices
     let wifi_ap_device = interfaces.ap;
@@ -63,21 +62,17 @@ pub async fn initialize_wifi(
         seed,
     );
 
-    // Configure WiFi in mixed mode
-    let client_config = Configuration::Mixed(
-        ClientConfiguration {
-            ssid: WIFI_SSID.into(),
-            password: WIFI_PASSWORD.into(),
-            ..Default::default()
-        },
-        AccessPointConfiguration {
-            ssid: AP_SSID.into(),
-            password: AP_PASSWORD.into(),
-            auth_method: AuthMethod::WPA2Personal,
-            ..Default::default()
-        },
+    // Configure WiFi in mixed mode (AP + STA)
+    let mixed_config = ModeConfig::ApSta(
+        ClientConfig::default()
+            .with_ssid(WIFI_SSID.into())
+            .with_password(WIFI_PASSWORD.into()),
+        AccessPointConfig::default()
+            .with_ssid(AP_SSID.into())
+            .with_password(AP_PASSWORD.into())
+            .with_auth_method(AuthMethod::Wpa2Personal),
     );
-    controller.set_configuration(&client_config).unwrap();
+    controller.set_config(&mixed_config).unwrap();
 
     // Spawn WiFi tasks
     spawner.spawn(connection_task(controller)).unwrap();
@@ -108,29 +103,29 @@ pub async fn initialize_wifi(
 #[embassy_executor::task]
 async fn connection_task(mut controller: WifiController<'static>) {
     info!("Starting WiFi connection task");
+    info!("Device capabilities: {:?}", controller.capabilities());
 
     info!("Starting WiFi");
     controller.start_async().await.unwrap();
     info!("WiFi started!");
 
     loop {
-        match esp_wifi::wifi::ap_state() {
-            WifiState::ApStarted => {
-                info!("About to connect to WiFi...");
+        if matches!(controller.is_started(), Ok(true)) {
+            info!("About to connect to WiFi...");
 
-                match controller.connect_async().await {
-                    Ok(_) => {
-                        // Wait until we're no longer connected
-                        controller.wait_for_event(WifiEvent::StaDisconnected).await;
-                        info!("STA disconnected");
-                    }
-                    Err(e) => {
-                        info!("Failed to connect to WiFi: {:?}", e);
-                        Timer::after(Duration::from_millis(5000)).await
-                    }
+            match controller.connect_async().await {
+                Ok(_) => {
+                    // Wait until we're no longer connected
+                    controller.wait_for_event(WifiEvent::StaDisconnected).await;
+                    info!("STA disconnected");
+                }
+                Err(e) => {
+                    info!("Failed to connect to WiFi: {:?}", e);
+                    Timer::after(Duration::from_millis(5000)).await
                 }
             }
-            _ => return,
+        } else {
+            return;
         }
     }
 }
