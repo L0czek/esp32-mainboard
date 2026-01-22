@@ -21,7 +21,7 @@ use crate::wifi::WifiResources;
 use bq24296m;
 
 // Define the pool size for web tasks (reduced from 8 to 2 for memory constraints)
-const WEB_TASK_POOL_SIZE: usize = 2;
+const WEB_TASK_POOL_SIZE: usize = 1;
 
 #[derive(Serialize)]
 struct PinStatesResponse<'a> {

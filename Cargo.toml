@@ -76,11 +76,11 @@ pcf857x = "0.5.0"
 embedded-hal = "1.0.0"
 embedded-hal-bus = { version = "*", features = ["alloc"] }
 thiserror = { version = "*", default-features = false }
-# picoserve = { version = "*", features = ["embassy", "alloc", "defmt"] }
+picoserve = { git = "https://github.com/sammhicks/picoserve", branch = "development", features = ["embassy", "alloc", "defmt", "ws"] }
 once_cell = { version = "*", default-features = false, features = ["alloc", "critical-section"] }
 rand_core = "0.9.3"
 serde = { version = "*", default-features = false, features = ["alloc", "derive"] }
-serde_json = { version = "*", default-features = false, features = ["alloc"] }
+serde_json = { version = "=1.0.142", default-features = false, features = ["alloc"] }
 embassy-sync = { version = "*", default-features = false }
 embassy-futures = { version = "*", features = ["defmt"] }
 nb = { version = "*", features = ["defmt-0-3"] }
