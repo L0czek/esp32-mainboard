@@ -1,34 +1,27 @@
 use defmt::{error, info};
 use embassy_futures::select::{self, Either, Either3, Either4};
-use embassy_time::Duration;
-use serde::{Deserialize, Serialize};
-use serde_json;
 use picoserve::{
     make_static,
     response::{ws, File},
     routing::{self, get, PathRouter},
-    AppBuilder, AppRouter, Router,
+    AppBuilder, AppRouter, Router, Server,
 };
+use serde::{Deserialize, Serialize};
+use serde_json;
 extern crate alloc;
-use mainboard::tasks::{
-    AdcHandle,
-    DigitalIoHandle,
-    PowerHandle,
-    UartHandle,
-    PowerResponse,
-    DigitalPinID,
-    PinMode,
-};
-use mainboard::power::PowerControllerStats;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use alloc::string::String;
 use alloc::vec::Vec;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use mainboard::power::PowerControllerStats;
+use mainboard::tasks::{
+    AdcHandle, DigitalIoHandle, DigitalPinID, PinMode, PowerHandle, PowerResponse, UartHandle,
+};
 
 use crate::wifi::WifiResources;
 use bq24296m;
 
-// Define the pool size for web tasks
-const WEB_TASK_POOL_SIZE: usize = 8;
+// Define the pool size for web tasks (reduced from 8 to 2 for memory constraints)
+const WEB_TASK_POOL_SIZE: usize = 2;
 
 #[derive(Serialize)]
 struct PinStatesResponse<'a> {
@@ -137,12 +130,17 @@ impl AppBuilder for AppProps {
         };
 
         Router::new()
-            .route("/", routing::get_service(File::html(include_str!("index.html"))))
+            .route(
+                "/",
+                routing::get_service(File::html(include_str!("index.html"))),
+            )
             .route(
                 "/ws",
-                get(move |upgrade: picoserve::response::WebSocketUpgrade| {
-                    upgrade.on_upgrade(handler)
-                }),
+                get(
+                    move |upgrade: picoserve::response::WebSocketUpgrade| async move {
+                        upgrade.on_upgrade(handler)
+                    },
+                ),
             )
     }
 }
@@ -225,7 +223,11 @@ enum WebSocketCommand {
     #[serde(rename = "i2c_scan")]
     I2cScan,
     #[serde(rename = "i2c_transfer")]
-    I2cTransfer { address: u8, tx_data: Vec<u8>, rx_len: u8 },
+    I2cTransfer {
+        address: u8,
+        tx_data: Vec<u8>,
+        rx_len: u8,
+    },
     #[serde(rename = "uart_send")]
     UartSend { bytes: Vec<u8> },
     #[serde(rename = "shutdown")]
@@ -246,7 +248,12 @@ enum OutgoingMessage<'a> {
     #[serde(rename = "i2c_scan_result")]
     I2cScanResult { devices: alloc::vec::Vec<u8> },
     #[serde(rename = "i2c_transfer_result")]
-    I2cTransferResult { address: u8, tx_data: Option<alloc::vec::Vec<u8>>, rx_data: Option<alloc::vec::Vec<u8>>, success: bool },
+    I2cTransferResult {
+        address: u8,
+        tx_data: Option<alloc::vec::Vec<u8>>,
+        rx_data: Option<alloc::vec::Vec<u8>>,
+        success: bool,
+    },
     #[serde(rename = "uart_receive")]
     UartReceive { bytes: alloc::vec::Vec<u8> },
 }
@@ -256,7 +263,7 @@ async fn i2c_scan() -> Vec<u8> {
     use embedded_hal::i2c::I2c as I2cTrait;
     let mut i2c = mainboard::board::acquire_i2c_bus();
     let mut devices = Vec::new();
-    
+
     // Scan I2C address range (0x03 to 0x77)
     for addr in 0x03..=0x77 {
         // Try to write empty data to detect device presence
@@ -264,7 +271,7 @@ async fn i2c_scan() -> Vec<u8> {
             devices.push(addr);
         }
     }
-    
+
     info!("I2C scan found {} devices", devices.len());
     devices
 }
@@ -275,7 +282,7 @@ async fn i2c_transfer(address: u8, tx_data: &[u8], rx_len: u8) -> Result<Vec<u8>
     let requested_rx = rx_len;
     let tx_len = tx_data.len();
 
-    let result= if requested_rx == 0 {
+    let result = if requested_rx == 0 {
         let res = i2c.write(address, tx_data).map(|_| Vec::new());
         res
     } else {
@@ -305,9 +312,7 @@ async fn i2c_transfer(address: u8, tx_data: &[u8], rx_len: u8) -> Result<Vec<u8>
         Err(_) => {
             error!(
                 "I2C transfer failed: addr=0x{:02X}, tx_len={}, rx_len={}",
-                address,
-                tx_len,
-                requested_rx
+                address, tx_len, requested_rx
             );
             Err(())
         }
@@ -324,7 +329,9 @@ impl ws::WebSocketCallback for WebsocketHandler {
 
         let Some(mut power_state_receiver) = self.power.state_receiver() else {
             error!("Failed to get power state receiver");
-            let _ = tx.close(Some((1011, "Failed to get power state receiver"))).await;
+            let _ = tx
+                .close(Some((1011, "Failed to get power state receiver")))
+                .await;
             return Ok(());
         };
         let Some(mut out1_receiver) = self.digital.watch(DigitalPinID::D0) else {
@@ -354,24 +361,30 @@ impl ws::WebSocketCallback for WebsocketHandler {
         };
         let Some(mut adc_state_receiver) = self.adc.state_receiver() else {
             error!("Failed to get ADC state receiver");
-            let _ = tx.close(Some((1011, "Failed to get ADC state receiver"))).await;
+            let _ = tx
+                .close(Some((1011, "Failed to get ADC state receiver")))
+                .await;
             return Ok(());
         };
         let Some(mut adc_buffer_subscriber) = self.adc.buffer_subscriber() else {
             error!("Failed to get ADC buffer subscriber");
-            let _ = tx.close(Some((1011, "Failed to get ADC buffer subscriber"))).await;
+            let _ = tx
+                .close(Some((1011, "Failed to get ADC buffer subscriber")))
+                .await;
             return Ok(());
         };
         let Some(mut uart_rx_subscriber) = self.uart.subscribe() else {
             error!("Failed to get UART RX subscriber");
-            let _ = tx.close(Some((1011, "Failed to get UART RX subscriber"))).await;
+            let _ = tx
+                .close(Some((1011, "Failed to get UART RX subscriber")))
+                .await;
             return Ok(());
         };
 
         let close_reason = loop {
             match select::select(
                 select::select4(
-                    rx.next_message(&mut buffer),
+                    rx.next_message(&mut buffer, core::future::pending::<()>()),
                     power_state_receiver.changed(),
                     adc_state_receiver.changed(),
                     select::select3(
@@ -380,132 +393,184 @@ impl ws::WebSocketCallback for WebsocketHandler {
                         select::select3(
                             out3_receiver.changed(),
                             out4_receiver.changed(),
-                            out5_receiver.changed()
-                        )
-                    )
+                            out5_receiver.changed(),
+                        ),
+                    ),
                 ),
                 select::select(
                     adc_buffer_subscriber.next_message_pure(),
-                    uart_rx_subscriber.next_message_pure()
-                )
-            ).await {
-                Either::First(Either4::First(x)) => match x {
-                    Ok(ws::Message::Text(data)) => {
-                        if let Ok(command) = serde_json::from_str::<WebSocketCommand>(data) {
-                            match command {
-                                WebSocketCommand::Digital { id, value } => {
-                                    let pin = match id {
-                                        0 => DigitalPinID::D0,
-                                        1 => DigitalPinID::D1,
-                                        2 => DigitalPinID::D2,
-                                        3 => DigitalPinID::D3,
-                                        4 => DigitalPinID::D4,
-                                        _ => {
-                                            error!("Invalid output ID: {}", id);
-                                            continue;
-                                        }
-                                    };
-
-                                    self.digital.set(pin, value != 0).await;
-                                }
-                                WebSocketCommand::DigitalMode { id, mode } => {
-                                    let pin = match id {
-                                        0 => DigitalPinID::D0,
-                                        1 => DigitalPinID::D1,
-                                        2 => DigitalPinID::D2,
-                                        3 => DigitalPinID::D3,
-                                        4 => DigitalPinID::D4,
-                                        _ => {
-                                            error!("Invalid output ID: {}", id);
-                                            continue;
-                                        }
-                                    };
-
-                                    let pin_mode = match mode.as_str() {
-                                        "OpenDrain" => PinMode::OpenDrain,
-                                        "PushPull" => PinMode::PushPull,
-                                        _ => {
-                                            error!("Invalid pin mode: {}", mode.as_str());
-                                            continue;
-                                        }
-                                    };
-
-                                    info!("Setting pin {} to mode {}", id, mode.as_str());
-                                    self.digital.set_mode(pin, pin_mode).await;
-                                }
-                                WebSocketCommand::Power { action, value } => match action.as_str() {
-                                    "boost" => {
-                                        info!("Setting boost converter to: {}", if value { "enabled" } else { "disabled" });
-                                        match self.power.set_boost_converter(value).await {
-                                            PowerResponse::Ok => info!("Boost converter set successfully"),
-                                            PowerResponse::Err(_) => info!("Failed to set boost converter state"),
+                    uart_rx_subscriber.next_message_pure(),
+                ),
+            )
+            .await
+            {
+                Either::First(Either4::First(x)) => {
+                    // next_message returns Result<Either<Result<Message, ReadMessageError>, Signal>, IoError>
+                    let msg_result = match x {
+                        Ok(picoserve::futures::Either::First(msg_result)) => msg_result,
+                        Ok(picoserve::futures::Either::Second(_signal)) => continue, // Signal completed, shouldn't happen with pending()
+                        Err(io_err) => return Err(io_err),
+                    };
+                    match msg_result {
+                        Ok(ws::Message::Text(data)) => {
+                            if let Ok(command) = serde_json::from_str::<WebSocketCommand>(data) {
+                                match command {
+                                    WebSocketCommand::Digital { id, value } => {
+                                        let pin = match id {
+                                            0 => DigitalPinID::D0,
+                                            1 => DigitalPinID::D1,
+                                            2 => DigitalPinID::D2,
+                                            3 => DigitalPinID::D3,
+                                            4 => DigitalPinID::D4,
+                                            _ => {
+                                                error!("Invalid output ID: {}", id);
+                                                continue;
+                                            }
                                         };
-                                    }
-                                    _ => error!("Unknown power action"),
-                                },
-                                WebSocketCommand::I2cScan => {
-                                    info!("Starting I2C scan");
-                                    let devices = i2c_scan().await;
-                                    let _ = tx.send_json(OutgoingMessage::I2cScanResult { devices }).await;
-                                }
-                                WebSocketCommand::I2cTransfer { address, tx_data, rx_len } => {
-                                    info!("I2C transfer request: addr=0x{:02X}, tx_len={}, rx_len={}", address, tx_data.len(), rx_len);
-                                    let success = match i2c_transfer(address, &tx_data, rx_len).await {
-                                        Ok(rx_data) => {
-                                            let _ = tx.send_json(OutgoingMessage::I2cTransferResult {
-                                                address,
-                                                tx_data: Some(tx_data.clone()),
-                                                rx_data: Some(rx_data),
-                                                success: true,
-                                            }).await;
-                                            true
-                                        }
-                                        Err(_) => {
-                                            let _ = tx.send_json(OutgoingMessage::I2cTransferResult {
-                                                address,
-                                                tx_data: None,
-                                                rx_data: None,
-                                                success: false,
-                                            }).await;
-                                            false
-                                        }
-                                    };
 
-                                    if !success {
-                                        info!("I2C transfer failed to addr=0x{:02X}", address);
+                                        self.digital.set(pin, value != 0).await;
                                     }
-                                }
-                                WebSocketCommand::UartSend { bytes } => {
-                                    info!("UART send bytes request: {} bytes", bytes.len());
-                                    self.uart.send(&bytes).await;
-                                }
-                                WebSocketCommand::Shutdown => {
-                                    info!("Shutdown requested from Web UI");
-                                    self.shutdown.request_shutdown();
+                                    WebSocketCommand::DigitalMode { id, mode } => {
+                                        let pin = match id {
+                                            0 => DigitalPinID::D0,
+                                            1 => DigitalPinID::D1,
+                                            2 => DigitalPinID::D2,
+                                            3 => DigitalPinID::D3,
+                                            4 => DigitalPinID::D4,
+                                            _ => {
+                                                error!("Invalid output ID: {}", id);
+                                                continue;
+                                            }
+                                        };
+
+                                        let pin_mode = match mode.as_str() {
+                                            "OpenDrain" => PinMode::OpenDrain,
+                                            "PushPull" => PinMode::PushPull,
+                                            _ => {
+                                                error!("Invalid pin mode: {}", mode.as_str());
+                                                continue;
+                                            }
+                                        };
+
+                                        info!("Setting pin {} to mode {}", id, mode.as_str());
+                                        self.digital.set_mode(pin, pin_mode).await;
+                                    }
+                                    WebSocketCommand::Power { action, value } => {
+                                        match action.as_str() {
+                                            "boost" => {
+                                                info!(
+                                                    "Setting boost converter to: {}",
+                                                    if value { "enabled" } else { "disabled" }
+                                                );
+                                                match self.power.set_boost_converter(value).await {
+                                                    PowerResponse::Ok => {
+                                                        info!("Boost converter set successfully")
+                                                    }
+                                                    PowerResponse::Err(_) => {
+                                                        info!("Failed to set boost converter state")
+                                                    }
+                                                };
+                                            }
+                                            _ => error!("Unknown power action"),
+                                        }
+                                    }
+                                    WebSocketCommand::I2cScan => {
+                                        info!("Starting I2C scan");
+                                        let devices = i2c_scan().await;
+                                        let _ = tx
+                                            .send_text(
+                                                &serde_json::to_string(
+                                                    &OutgoingMessage::I2cScanResult { devices },
+                                                )
+                                                .unwrap_or_default(),
+                                            )
+                                            .await;
+                                    }
+                                    WebSocketCommand::I2cTransfer {
+                                        address,
+                                        tx_data,
+                                        rx_len,
+                                    } => {
+                                        info!("I2C transfer request: addr=0x{:02X}, tx_len={}, rx_len={}", address, tx_data.len(), rx_len);
+                                        let success =
+                                            match i2c_transfer(address, &tx_data, rx_len).await {
+                                                Ok(rx_data) => {
+                                                    let _ = tx
+                                                    .send_text(
+                                                        &serde_json::to_string(
+                                                            &OutgoingMessage::I2cTransferResult {
+                                                                address,
+                                                                tx_data: Some(tx_data.clone()),
+                                                                rx_data: Some(rx_data),
+                                                                success: true,
+                                                            },
+                                                        )
+                                                        .unwrap_or_default(),
+                                                    )
+                                                    .await;
+                                                    true
+                                                }
+                                                Err(_) => {
+                                                    let _ = tx
+                                                    .send_text(
+                                                        &serde_json::to_string(
+                                                            &OutgoingMessage::I2cTransferResult {
+                                                                address,
+                                                                tx_data: None,
+                                                                rx_data: None,
+                                                                success: false,
+                                                            },
+                                                        )
+                                                        .unwrap_or_default(),
+                                                    )
+                                                    .await;
+                                                    false
+                                                }
+                                            };
+
+                                        if !success {
+                                            info!("I2C transfer failed to addr=0x{:02X}", address);
+                                        }
+                                    }
+                                    WebSocketCommand::UartSend { bytes } => {
+                                        info!("UART send bytes request: {} bytes", bytes.len());
+                                        self.uart.send(&bytes).await;
+                                    }
+                                    WebSocketCommand::Shutdown => {
+                                        info!("Shutdown requested from Web UI");
+                                        self.shutdown.request_shutdown();
+                                    }
                                 }
                             }
+                            continue;
                         }
-                        continue
+                        Ok(ws::Message::Binary(_)) => {
+                            break Some((1003, "Binary messages not supported"))
+                        }
+                        Ok(ws::Message::Close(_)) => break None,
+                        Ok(ws::Message::Ping(data)) => {
+                            let _ = tx.send_pong(data).await;
+                        }
+                        Ok(ws::Message::Pong(_)) => continue,
+                        Err(err) => {
+                            let code = match &err {
+                                ws::ReadMessageError::ReadFrameError(_)
+                                | ws::ReadMessageError::MessageStartsWithContinuation
+                                | ws::ReadMessageError::UnexpectedMessageStart => 1002,
+                                ws::ReadMessageError::ReservedOpcode(_) => 1003,
+                                ws::ReadMessageError::TextIsNotUtf8 => 1007,
+                            };
+                            break Some((code, "Websocket Error"));
+                        }
                     }
-                    Ok(ws::Message::Binary(_)) => break Some((1003, "Binary messages not supported")),
-                    Ok(ws::Message::Close(_)) => break None,
-                    Ok(ws::Message::Ping(data)) => tx.send_pong(data).await,
-                    Ok(ws::Message::Pong(_)) => continue,
-                    Err(err) => {
-                        let code = match err {
-                            ws::ReadMessageError::Io(err) => return Err(err),
-                            ws::ReadMessageError::ReadFrameError(_)
-                            | ws::ReadMessageError::MessageStartsWithContinuation
-                            | ws::ReadMessageError::UnexpectedMessageStart => 1002,
-                            ws::ReadMessageError::ReservedOpcode(_) => 1003,
-                            ws::ReadMessageError::TextIsNotUtf8 => 1007,
-                        };
-                        break Some((code, "Websocket Error"));
-                    }
-                },
+                }
                 Either::First(Either4::Second(power_state)) => {
                     let power_stats_response = format_power_stats_response(power_state);
-                    tx.send_json(OutgoingMessage::PowerStats(power_stats_response)).await
+                    tx.send_text(
+                        &serde_json::to_string(&OutgoingMessage::PowerStats(power_stats_response))
+                            .unwrap_or_default(),
+                    )
+                    .await?;
                 }
                 Either::First(Either4::Third(adc_state)) => {
                     let adc_response = AdcVoltageResponse {
@@ -517,79 +582,111 @@ impl ws::WebSocketCallback for WebsocketHandler {
                         a3: adc_state.a3,
                         a4: adc_state.a4,
                     };
-                    tx.send_json(OutgoingMessage::AdcVoltage(adc_response)).await
+                    tx.send_text(
+                        &serde_json::to_string(&OutgoingMessage::AdcVoltage(adc_response))
+                            .unwrap_or_default(),
+                    )
+                    .await?;
                 }
-                Either::First(Either4::Fourth(pin_select)) => {
-                    match pin_select {
+                Either::First(Either4::Fourth(pin_select)) => match pin_select {
+                    Either3::First((mode, state)) => {
+                        let pin_state_response = PinStatesResponse {
+                            pin_number: 0,
+                            mode: mode.to_str(),
+                            state: state.to_str(),
+                        };
+                        tx.send_text(
+                            &serde_json::to_string(&OutgoingMessage::PinState(pin_state_response))
+                                .unwrap_or_default(),
+                        )
+                        .await?;
+                    }
+                    Either3::Second((mode, state)) => {
+                        let pin_state_response = PinStatesResponse {
+                            pin_number: 1,
+                            mode: mode.to_str(),
+                            state: state.to_str(),
+                        };
+                        tx.send_text(
+                            &serde_json::to_string(&OutgoingMessage::PinState(pin_state_response))
+                                .unwrap_or_default(),
+                        )
+                        .await?;
+                    }
+                    Either3::Third(inner_select) => match inner_select {
                         Either3::First((mode, state)) => {
                             let pin_state_response = PinStatesResponse {
-                                pin_number: 0,
+                                pin_number: 2,
                                 mode: mode.to_str(),
                                 state: state.to_str(),
                             };
-                            tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                            tx.send_text(
+                                &serde_json::to_string(&OutgoingMessage::PinState(
+                                    pin_state_response,
+                                ))
+                                .unwrap_or_default(),
+                            )
+                            .await?;
                         }
                         Either3::Second((mode, state)) => {
                             let pin_state_response = PinStatesResponse {
-                                pin_number: 1,
+                                pin_number: 3,
                                 mode: mode.to_str(),
                                 state: state.to_str(),
                             };
-                            tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
+                            tx.send_text(
+                                &serde_json::to_string(&OutgoingMessage::PinState(
+                                    pin_state_response,
+                                ))
+                                .unwrap_or_default(),
+                            )
+                            .await?;
                         }
-                        Either3::Third(inner_select) => {
-                            match inner_select {
-                                Either3::First((mode, state)) => {
-                                    let pin_state_response = PinStatesResponse {
-                                        pin_number: 2,
-                                        mode: mode.to_str(),
-                                        state: state.to_str(),
-                                    };
-                                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
-                                }
-                                Either3::Second((mode, state)) => {
-                                    let pin_state_response = PinStatesResponse {
-                                        pin_number: 3,
-                                        mode: mode.to_str(),
-                                        state: state.to_str(),
-                                    };
-                                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
-                                }
-                                Either3::Third((mode, state)) => {
-                                    let pin_state_response = PinStatesResponse {
-                                        pin_number: 4,
-                                        mode: mode.to_str(),
-                                        state: state.to_str(),
-                                    };
-                                    tx.send_json(OutgoingMessage::PinState(pin_state_response)).await
-                                }
-                            }
-                        }
-                    }
-                }
-                Either::Second(data_select) => {
-                    match data_select {
-                        Either::First(buffer_data) => {
-                            let buffer_response = AdcBufferResponse {
-                                sequence: buffer_data.sequence,
-                                battery_voltage: buffer_data.battery_voltage.to_vec(),
-                                boost_voltage: buffer_data.boost_voltage.to_vec(),
-                                a0: buffer_data.a0.to_vec(),
-                                a1: buffer_data.a1.to_vec(),
-                                a2: buffer_data.a2.to_vec(),
-                                a3: buffer_data.a3.to_vec(),
-                                a4: buffer_data.a4.to_vec(),
+                        Either3::Third((mode, state)) => {
+                            let pin_state_response = PinStatesResponse {
+                                pin_number: 4,
+                                mode: mode.to_str(),
+                                state: state.to_str(),
                             };
-                            tx.send_json(OutgoingMessage::AdcBuffer(buffer_response)).await
+                            tx.send_text(
+                                &serde_json::to_string(&OutgoingMessage::PinState(
+                                    pin_state_response,
+                                ))
+                                .unwrap_or_default(),
+                            )
+                            .await?;
                         }
-                        Either::Second(uart_data) => {
-                            tx.send_json(OutgoingMessage::UartReceive { 
-                                bytes: uart_data.bytes 
-                            }).await
-                        }
+                    },
+                },
+                Either::Second(data_select) => match data_select {
+                    Either::First(buffer_data) => {
+                        let buffer_response = AdcBufferResponse {
+                            sequence: buffer_data.sequence,
+                            battery_voltage: buffer_data.battery_voltage.to_vec(),
+                            boost_voltage: buffer_data.boost_voltage.to_vec(),
+                            a0: buffer_data.a0.to_vec(),
+                            a1: buffer_data.a1.to_vec(),
+                            a2: buffer_data.a2.to_vec(),
+                            a3: buffer_data.a3.to_vec(),
+                            a4: buffer_data.a4.to_vec(),
+                        };
+                        tx.send_text(
+                            &serde_json::to_string(&OutgoingMessage::AdcBuffer(buffer_response))
+                                .unwrap_or_default(),
+                        )
+                        .await?;
                     }
-                }
-            }?;
+                    Either::Second(uart_data) => {
+                        tx.send_text(
+                            &serde_json::to_string(&OutgoingMessage::UartReceive {
+                                bytes: uart_data.bytes,
+                            })
+                            .unwrap_or_default(),
+                        )
+                        .await?;
+                    }
+                },
+            };
         };
 
         tx.close(close_reason).await
@@ -628,16 +725,7 @@ pub async fn run_server(
     );
 
     // Configure server timeouts
-    let config = make_static!(
-        picoserve::Config<Duration>,
-        picoserve::Config::new(picoserve::Timeouts {
-            start_read_request: Some(Duration::from_secs(5)),
-            persistent_start_read_request: Some(Duration::from_secs(3)),
-            read_request: Some(Duration::from_secs(3)),
-            write: Some(Duration::from_secs(3)),
-        })
-        .keep_connection_alive()
-    );
+    let config = make_static!(picoserve::Config, picoserve::Config::default());
 
     // No need for buffer allocation here
 
@@ -666,7 +754,7 @@ async fn web_task(
     id: usize,
     stack: embassy_net::Stack<'static>,
     app: &'static AppRouter<AppProps>,
-    config: &'static picoserve::Config<Duration>,
+    config: &'static picoserve::Config,
 ) -> ! {
     let port = 80;
 
@@ -675,15 +763,9 @@ async fn web_task(
     let mut tcp_tx_buffer = [0; 1024];
     let mut http_buffer = [0; 2048];
 
-    picoserve::listen_and_serve(
-        id,
-        app,
-        config,
-        stack,
-        port,
-        &mut tcp_rx_buffer,
-        &mut tcp_tx_buffer,
-        &mut http_buffer,
-    )
-    .await
+    loop {
+        Server::new(app, config, &mut http_buffer)
+            .listen_and_serve(id, stack, port, &mut tcp_rx_buffer, &mut tcp_tx_buffer)
+            .await;
+    }
 }

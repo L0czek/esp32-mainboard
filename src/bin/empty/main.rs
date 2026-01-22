@@ -1,4 +1,3 @@
-#![feature(impl_trait_in_assoc_type)]
 #![no_std]
 #![no_main]
 #![deny(
@@ -63,47 +62,18 @@ async fn main(spawner: Spawner) -> ! {
         boost_converter_enable: board.BoostEn,
     };
     let power = spawn_power_controller(&spawner, power_config, power_io);
-    let power_receiver = power.state_receiver().expect("Failed to get power state receiver");
-    spawner.spawn(log_power_state_changes_task(power_receiver)).expect("Failed to spawn log_power_state_changes_task");
-
-    let adc_config = AdcConfig::new();
-    let calibration: VoltageMonitorCalibrationConfig = Default::default();
-    let adc = spawn_adc_task(
-        &spawner,
-        peripherals.ADC1,
-        adc_config,
-        calibration,
-        board.BatVol,
-        board.BoostVol,
-        board.A0,
-        board.A1,
-        board.A2,
-        board.A3,
-        board.A4,
-    );
-    spawner.spawn(log_voltage_changes_task(adc)).expect("Failed to spawn log_voltage_changes_task");
+    let power_receiver = power
+        .state_receiver()
+        .expect("Failed to get power state receiver");
+    spawner
+        .spawn(log_power_state_changes_task(power_receiver))
+        .expect("Failed to spawn log_power_state_changes_task");
 
     spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
 
     loop {
         info!("Hello world!");
         Timer::after(Duration::from_secs(1)).await;
-    }
-
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-rc.0/examples/src/bin
-}
-
-#[embassy_executor::task]
-async fn log_voltage_changes_task(adc: AdcHandle) {
-    loop {
-        if let Some(state) = adc.state() {
-            info!(
-                "Battery voltage: {}mV, Boost voltage: {}mV",
-                state.battery_voltage,
-                state.boost_voltage
-            );
-        }
-        Timer::after(Duration::from_secs(10)).await;
     }
 }
 

@@ -8,24 +8,33 @@
 )]
 
 mod config;
-// mod server; // Disabled - picoserve needs migration
+mod server;
 mod wifi;
 
+use esp_hal::analog::adc::AdcConfig;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
-use mainboard::tasks::{spawn_ext_interrupt_task, spawn_power_controller, PowerStateReceiver};
+use mainboard::tasks::{
+    spawn_adc_task, spawn_digital_io, spawn_ext_interrupt_task, spawn_power_controller,
+    spawn_uart_tasks, AdcHandle, DigitalPinID, PinMode, PowerResponse, PowerStateReceiver,
+    VoltageMonitorCalibrationConfig,
+};
 
+use crate::server::ShutdownHandle;
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
-use esp_hal::clock::CpuClock;
 use esp_hal::timer::timg::TimerGroup;
+use esp_hal::{clock::CpuClock, rtc_cntl::Rtc};
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
 // StaticCell for WiFi controller
 static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
+static SHUTDOWN_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -43,24 +52,27 @@ async fn main(spawner: Spawner) {
     // Configure and initialize hardware
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
-    let board = create_board!(peripherals);
 
     // Initialize heap allocator
-    esp_alloc::heap_allocator!(size: 64 * 1024);
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 65536);
 
-    // Initialize embassy time
-    let timer0 = SystemTimer::new(peripherals.SYSTIMER);
-    esp_hal_embassy::init(timer0.alarm0);
+    // Initialize esp_rtos
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let sw_interrupt =
+        esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
     info!("Embassy initialized!");
+
+    let board = create_board!(peripherals);
 
     init_i2c_bus(peripherals.I2C0, board.Sda, board.Scl).expect("Failed to initialize I2C bus");
 
-    // Initialize RNG and timer for WiFi
-    let mut rng = esp_hal::rng::Rng::new(peripherals.RNG);
-    let timer1 = TimerGroup::new(peripherals.TIMG0);
+    // Initialize RNG for WiFi
+    let mut rng = esp_hal::rng::Rng::new();
 
     // Initialize esp-radio controller
-    let esp_wifi_ctrl = ESP_WIFI_CTRL.init(esp_wifi::init(timer1.timer0, rng).unwrap());
+    let radio_init =
+        ESP_RADIO_INIT.init(esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller"));
 
     let power_config = Default::default();
     let power_io = PowerControllerIO {
@@ -69,8 +81,12 @@ async fn main(spawner: Spawner) {
         boost_converter_enable: board.BoostEn,
     };
     let power = spawn_power_controller(&spawner, power_config, power_io);
-    let power_receiver = power.state_receiver().expect("Failed to get power state receiver");
-    spawner.spawn(log_power_state_changes_task(power_receiver)).expect("Failed to spawn log_power_state_changes_task");
+    let power_receiver = power
+        .state_receiver()
+        .expect("Failed to get power state receiver");
+    spawner
+        .spawn(log_power_state_changes_task(power_receiver))
+        .expect("Failed to spawn log_power_state_changes_task");
 
     let adc_config = AdcConfig::new();
     let calibration: VoltageMonitorCalibrationConfig = Default::default();
@@ -87,19 +103,19 @@ async fn main(spawner: Spawner) {
         board.A3,
         board.A4,
     );
-    spawner.spawn(log_voltage_changes_task(adc)).expect("Failed to spawn log_voltage_changes_task");
+    spawner
+        .spawn(log_voltage_changes_task(adc))
+        .expect("Failed to spawn log_voltage_changes_task");
 
     spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
 
     // Initialize UART
     info!("Initializing UART...");
-    let uart = esp_hal::uart::Uart::new(
-        peripherals.UART0,
-        esp_hal::uart::Config::default(),
-    ).unwrap()
+    let uart = esp_hal::uart::Uart::new(peripherals.UART0, esp_hal::uart::Config::default())
+        .unwrap()
         .with_rx(board.U0Rx)
         .with_tx(board.U0Tx);
-    
+
     // Convert to async
     let uart = uart.into_async();
     let (uart_rx, uart_tx) = uart.split();
@@ -109,7 +125,7 @@ async fn main(spawner: Spawner) {
     // Initialize WiFi in mixed mode (AP + STA)
     info!("Initializing WiFi...");
     let wifi_resources =
-        wifi::initialize_wifi(spawner, esp_wifi_ctrl, peripherals.WIFI, &mut rng).await;
+        wifi::initialize_wifi(spawner, radio_init, peripherals.WIFI, &mut rng).await;
     info!("WiFi initialized!");
 
     // Initialize simple output
@@ -118,12 +134,26 @@ async fn main(spawner: Spawner) {
     // Start the web server
     info!("Starting web server...");
     let shutdown_handle = ShutdownHandle::new(&SHUTDOWN_SIGNAL);
-    server::run_server(spawner, &wifi_resources, power, adc, digital, uart_handle, shutdown_handle).await;
+    server::run_server(
+        spawner,
+        &wifi_resources,
+        power,
+        adc,
+        digital,
+        uart_handle,
+        shutdown_handle,
+    )
+    .await;
     info!("Web server started!");
 
     // Main loop
     loop {
-        match select(Timer::after(Duration::from_secs(10)), SHUTDOWN_SIGNAL.wait()).await {
+        match select(
+            Timer::after(Duration::from_secs(10)),
+            SHUTDOWN_SIGNAL.wait(),
+        )
+        .await
+        {
             Either::First(_) => {
                 info!(
                     "Server running... AP IP: {:?}, STA IP: {:?}",
@@ -174,8 +204,7 @@ async fn log_voltage_changes_task(adc: AdcHandle) {
         if let Some(state) = adc.state() {
             info!(
                 "Battery voltage: {}mV, Boost voltage: {}mV",
-                state.battery_voltage,
-                state.boost_voltage
+                state.battery_voltage, state.boost_voltage
             );
         }
         Timer::after(Duration::from_secs(10)).await;
