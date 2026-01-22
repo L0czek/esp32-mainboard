@@ -54,7 +54,9 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(config);
 
     // Initialize heap allocator
-    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 65536);
+    // Not #[esp_hal::ram(reclaimed)] because its too small XD
+    // We use all we can afford to hopefully have enough for serde XD
+    esp_alloc::heap_allocator!(size: 65536 * 2);
 
     // Initialize esp_rtos
     let timg0 = TimerGroup::new(peripherals.TIMG0);
