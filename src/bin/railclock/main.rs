@@ -30,6 +30,7 @@ use mainboard::tasks::{
 };
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
+use crate::config::BUTTON_DELAY_MS;
 use crate::driver::{ClockDriver, spawn_clock_task};
 use crate::ntp::sync_time_with_ntp;
 use crate::rtc::rtc_handler;
@@ -97,6 +98,12 @@ async fn main(spawner: Spawner) -> ! {
 
     spawn_clock_task(&spawner, board.Motor0, board.Motor1, power);
 
+    spawner.spawn(listen_on_buttons(board.D0)).expect("Failed to spawn manual controll pin task");
+
+    // With no battery I disabled the charging to stop interrupts trying to tell me that battery is
+    // missing will fix later
+    power.enter_passive_mode().await;
+
     loop {
         info!("Hello world!");
         Timer::after(Duration::from_secs(1)).await;
@@ -115,18 +122,19 @@ async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
 }
 
 #[embassy_executor::task]
-async fn listen_on_buttons(bt0: A0Pin, bt1: D0Pin) {
-    let mut p0 = Input::new(bt0, InputConfig::default().with_pull(esp_hal::gpio::Pull::Up));
+async fn listen_on_buttons(bt1: D0Pin) {
     let mut p1 = Input::new(bt1, InputConfig::default().with_pull(esp_hal::gpio::Pull::Up));
 
     loop {
-        match select(p0.wait_for_low(), p1.wait_for_low()).await {
-            _ => {
-                CLOCK_DRIVER.get().await.push_forward(1);
-                Timer::after_millis(600).await;
-            }
-        }
+        p1.wait_for_low().await;
+        info!("Manual push");
+        CLOCK_DRIVER.get().await.push_forward(1);
+        Timer::after_millis(BUTTON_DELAY_MS).await;
     }
 }
 
+#[embassy_executor::task]
+async fn listen_on_tick() {
+
+}
 

@@ -1,5 +1,7 @@
+use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
+use defmt::error;
 use embedded_hal_bus::i2c::AtomicError;
 use mainboard::{board::acquire_i2c_bus, channel::RequestResponseChannel};
 use mcp794xx::NaiveDateTime;
@@ -83,14 +85,13 @@ impl RtcClient {
         }
     }
 
-    pub async fn read_nonvolatile(&self, _addr: u8, _size: u8) -> Result<Vec<u8>, RtcClientError> {
+    pub async fn read_nonvolatile(&self, addr: u8, size: u8) -> Result<Vec<u8>, RtcClientError> {
         info!("Reading RTC state");
-        // match RTC_CHANNEL.transact(RtcRequest::ReadNonvolatileMem { addr, size }).await {
-        //     RtcResponse::NonvolatileMem(v) => Ok(v),
-        //     RtcResponse::RtcError(e) => Err(RtcClientError::Rtc(e)),
-        //     _ => Err(RtcClientError::UnexpectedResponse),
-        // }
-        Ok(vec![1])
+        match RTC_CHANNEL.transact(RtcRequest::ReadNonvolatileMem { addr, size }).await {
+            RtcResponse::NonvolatileMem(v) => Ok(v),
+            RtcResponse::RtcError(e) => Err(RtcClientError::Rtc(e)),
+            _ => Err(RtcClientError::UnexpectedResponse),
+        }
     }
 
     pub async fn write_nonvolatile(&self, addr: u8, data: &[u8]) -> Result<(), RtcClientError> {
@@ -156,7 +157,9 @@ pub(crate) async fn rtc_handler() {
                     Ok(()) => RtcResponse::Ok,
                     Err(e) => RtcResponse::RtcError(e)
                 };
-                rtc.enable();
+                if let Err(e) = rtc.enable() {
+                    error!("Failed to enable RTC {:?}", format!("{:?}", e).as_str());
+                }
 
                 ret
             },

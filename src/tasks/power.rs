@@ -26,6 +26,7 @@ pub enum PowerRequest {
     EnableBoostConverter(bool),
     CheckInterrupt,
     EnterShippingMode,
+    EnterPassiveMode,
 }
 
 pub enum PowerResponse {
@@ -42,7 +43,7 @@ static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> =
     RequestResponseChannel::with_static_channels();
 
 // Power state management
-static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> = 
+static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> =
     watch::Watch::new();
 
 pub type PowerStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, PowerControllerStats, 4>;
@@ -123,6 +124,15 @@ fn handle_power_controller_command(
         PowerRequest::EnterShippingMode => {
             match pctl.read_stats() {
                 Ok(stats) => match pctl.enter_shipping_mode(&stats) {
+                    Ok(()) => PowerResponse::Ok,
+                    Err(e) => PowerResponse::Err(e),
+                },
+                Err(e) => PowerResponse::Err(e),
+            }
+        }
+        PowerRequest::EnterPassiveMode => {
+            match pctl.read_stats() {
+                Ok(stats) => match pctl.switch_mode(PowerControllerMode::Passive, &stats) {
                     Ok(()) => PowerResponse::Ok,
                     Err(e) => PowerResponse::Err(e),
                 },
@@ -225,6 +235,10 @@ impl PowerHandle {
 
     pub async fn enter_shipping_mode(&self) -> PowerResponse {
         self.transact(PowerRequest::EnterShippingMode).await
+    }
+
+    pub async fn enter_passive_mode(&self) -> PowerResponse {
+        self.transact(PowerRequest::EnterPassiveMode).await
     }
 
     pub fn state_receiver(&self) -> Option<PowerStateReceiver> {
