@@ -7,6 +7,7 @@ use mainboard::{board::acquire_i2c_bus, channel::RequestResponseChannel};
 use mcp794xx::NaiveDateTime;
 use mcp794xx::DateTimeAccess;
 use defmt::info;
+use rust_mqtt::client::info;
 
 #[derive(Debug)]
 pub(crate) enum RtcRequest {
@@ -31,6 +32,9 @@ pub(crate) enum RtcRequest {
         matching: mcp794xx::AlarmMatching,
         polarity: mcp794xx::AlarmOutputPinPolarity,
     }
+    ,
+    HasAlarmMatched(mcp794xx::Alarm),
+    ClearAlarmMatchedFlag(mcp794xx::Alarm)
 }
 
 pub(crate) enum RtcResponse {
@@ -40,6 +44,8 @@ pub(crate) enum RtcResponse {
 
     NonvolatileMem(Vec<u8>),
     DateTime(NaiveDateTime)
+    ,
+    HasAlarmMatched(bool)
 }
 
 pub(crate) static RTC_CHANNEL: RequestResponseChannel<RtcRequest, RtcResponse, 10> = RequestResponseChannel::with_static_channels();
@@ -86,7 +92,6 @@ impl RtcClient {
     }
 
     pub async fn read_nonvolatile(&self, addr: u8, size: u8) -> Result<Vec<u8>, RtcClientError> {
-        info!("Reading RTC state");
         match RTC_CHANNEL.transact(RtcRequest::ReadNonvolatileMem { addr, size }).await {
             RtcResponse::NonvolatileMem(v) => Ok(v),
             RtcResponse::RtcError(e) => Err(RtcClientError::Rtc(e)),
@@ -142,6 +147,22 @@ impl RtcClient {
             _ => Err(RtcClientError::UnexpectedResponse),
         }
     }
+
+    pub async fn has_alarm_matched(&self, alarm: mcp794xx::Alarm) -> Result<bool, RtcClientError> {
+        match RTC_CHANNEL.transact(RtcRequest::HasAlarmMatched(alarm)).await {
+            RtcResponse::HasAlarmMatched(v) => Ok(v),
+            RtcResponse::RtcError(e) => Err(RtcClientError::Rtc(e)),
+            _ => Err(RtcClientError::UnexpectedResponse),
+        }
+    }
+
+    pub async fn clear_alarm_matched_flag(&self, alarm: mcp794xx::Alarm) -> Result<(), RtcClientError> {
+        match RTC_CHANNEL.transact(RtcRequest::ClearAlarmMatchedFlag(alarm)).await {
+            RtcResponse::Ok => Ok(()),
+            RtcResponse::RtcError(e) => Err(RtcClientError::Rtc(e)),
+            _ => Err(RtcClientError::UnexpectedResponse),
+        }
+    }
 }
 
 #[embassy_executor::task]
@@ -168,6 +189,7 @@ pub(crate) async fn rtc_handler() {
                 let mut mem = Vec::with_capacity(size as usize);
                 mem.resize(size as usize, 0u8);
 
+                info!("addr: {} size: {}", addr, mem.as_mut_slice().len());
                 match rtc.read_sram_data(addr, mem.as_mut_slice()) {
                     Ok(()) => RtcResponse::NonvolatileMem(mem),
                     Err(e) => RtcResponse::RtcError(e)
@@ -197,6 +219,20 @@ pub(crate) async fn rtc_handler() {
 
             RtcRequest::SetAlarm { alarm, when, matching, polarity } => {
                 match rtc.set_alarm(alarm, when, matching, polarity) {
+                    Ok(()) => RtcResponse::Ok,
+                    Err(e) => RtcResponse::RtcError(e),
+                }
+            },
+
+            RtcRequest::HasAlarmMatched(alarm) => {
+                match rtc.has_alarm_matched(alarm) {
+                    Ok(v) => RtcResponse::HasAlarmMatched(v),
+                    Err(e) => RtcResponse::RtcError(e),
+                }
+            },
+
+            RtcRequest::ClearAlarmMatchedFlag(alarm) => {
+                match rtc.clear_alarm_matched_flag(alarm) {
                     Ok(()) => RtcResponse::Ok,
                     Err(e) => RtcResponse::RtcError(e),
                 }

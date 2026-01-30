@@ -60,7 +60,7 @@ impl ClockDriver {
 }
 
 async fn read_rtc_state() -> ClockDriverState {
-    match RTC.read_nonvolatile(0x20u8, 64u8).await {
+    match RTC.read_nonvolatile(0x20, 64u8).await {
         Ok(data) => {
             let state = rkyv::access::<ArchivedClockDriverState, Error>(data.as_ref())
                 .map(|i| ClockDriverState::from(i))

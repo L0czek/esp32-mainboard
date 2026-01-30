@@ -2,6 +2,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::{debug, error};
 use embassy_executor::Spawner;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use esp_hal::{
     gpio::{Input, InputConfig},
     peripherals::GPIO7,
@@ -23,6 +24,7 @@ pub fn spawn_ext_interrupt_task(
     spawner: &Spawner,
     line: GPIO7<'static>,
     power: PowerHandle,
+    other: &'static Signal<CriticalSectionRawMutex, ()>
 ) {
     if EXT_INTERRUPT_STARTED
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -32,7 +34,7 @@ pub fn spawn_ext_interrupt_task(
     }
 
     spawner
-        .spawn(ext_interrupt_task(line, power))
+        .spawn(ext_interrupt_task(line, power, other))
         .expect("spawn ext interrupt failed");
 }
 
@@ -41,7 +43,7 @@ pub fn spawn_ext_interrupt_task(
 // ============================================================================
 
 #[embassy_executor::task]
-pub async fn ext_interrupt_task(line: GPIO7<'static>, power: PowerHandle) {
+pub async fn ext_interrupt_task(line: GPIO7<'static>, power: PowerHandle, other: &'static Signal<CriticalSectionRawMutex, ()>) {
     let mut pin = Input::new(
         line,
         InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
@@ -56,5 +58,7 @@ pub async fn ext_interrupt_task(line: GPIO7<'static>, power: PowerHandle) {
                 error!("Power Controller interrupt check failed with: {:?}", e)
             }
         }
+
+        other.signal(());
     }
 }
