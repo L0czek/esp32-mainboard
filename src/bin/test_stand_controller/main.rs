@@ -14,20 +14,21 @@ mod mqtt;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
-use mainboard::tasks::{
-    spawn_ext_interrupt_task, spawn_power_controller,
-    PowerResponse, PowerStateReceiver,
-};
+use mainboard::tasks::{spawn_ext_interrupt_task, spawn_power_controller, PowerStateReceiver, PowerResponse};
+use crate::wifi::WifiResources;
 
 use defmt::info;
 use embassy_executor::Spawner;
+use esp_hal::clock::CpuClock;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::{clock::CpuClock, rtc_cntl::Rtc};
+use esp_hal::rtc_cntl::Rtc;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
 // StaticCell for WiFi controller
 static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
+// StaticCell for WiFi resources (needed for mqtt_task which requires 'static lifetime)
+static WIFI_RESOURCES: StaticCell<WifiResources> = StaticCell::new();
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -85,18 +86,26 @@ async fn main(spawner: Spawner) {
 
     spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
 
-    // Initialize WiFi in mixed mode (STA)
+    // Initialize WiFi in STA mode
     info!("Initializing WiFi...");
     let wifi_resources =
         wifi::initialize_wifi(spawner, radio_init, peripherals.WIFI, &mut rng).await;
     info!("WiFi initialized!");
 
+    // Store wifi resources in static cell for mqtt_task
+    let wifi_resources = WIFI_RESOURCES.init(wifi_resources);
 
+    // Spawn MQTT task
+    spawner
+        .spawn(mqtt::mqtt_task(wifi_resources))
+        .expect("Failed to spawn mqtt_task");
+    info!("MQTT task spawned");
 
     loop {
-
+        embassy_time::Timer::after_secs(1).await
     }
 
+    // TODO implement shutdown condition and then this code will be used
     // Perform shutdown sequence
     info!("Executing shutdown sequence: disable boost, set charger to Charging, float GPIOs");
     match power.set_boost_converter(false).await {
