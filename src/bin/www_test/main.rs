@@ -7,8 +7,11 @@
     holding buffers for the duration of a data transfer."
 )]
 
+mod adc;
 mod config;
+mod digital_io;
 mod server;
+mod uart;
 mod wifi;
 
 use esp_hal::analog::adc::AdcConfig;
@@ -16,12 +19,13 @@ use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
-    spawn_adc_task, spawn_digital_io, spawn_ext_interrupt_task, spawn_power_controller,
-    spawn_uart_tasks, AdcHandle, DigitalPinID, PinMode, PowerResponse, PowerStateReceiver,
-    VoltageMonitorCalibrationConfig,
+    PowerResponse, PowerStateReceiver, spawn_ext_interrupt_task, spawn_power_controller
 };
 
+use crate::adc::{AdcHandle, VoltageMonitorCalibrationConfig, spawn_adc_task};
+use crate::digital_io::{DigitalPinID, spawn_digital_io};
 use crate::server::ShutdownHandle;
+use crate::uart::spawn_uart_tasks;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
@@ -186,7 +190,7 @@ async fn main(spawner: Spawner) {
     ];
 
     for pin in pins {
-        digital.set_mode(pin, PinMode::OpenDrain).await;
+        digital.set_mode(pin, digital_io::PinMode::OpenDrain).await;
         digital.set(pin, true).await;
     }
 

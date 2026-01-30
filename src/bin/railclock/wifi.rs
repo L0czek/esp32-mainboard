@@ -1,11 +1,10 @@
-use core::net::Ipv4Addr;
 
 use defmt::info;
-use embassy_net::{Ipv4Cidr, Runner, StackResources, StaticConfigV4};
+use embassy_net::{Runner, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
 use esp_radio::wifi::{
-    AccessPointConfig, AuthMethod, ClientConfig, ModeConfig, ScanConfig, WifiController, WifiDevice, WifiEvent
+    ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent
 };
 use rand_core::RngCore as _;
 use static_cell::StaticCell;

@@ -1,5 +1,5 @@
 //! Digital I/O module with configurable pin modes
-//! 
+//!
 //! This module provides a safe interface for controlling digital I/O pins using a command-driven
 //! task pattern. Each pin is managed by its own task that processes commands
 //! and monitors pin state changes.
@@ -14,7 +14,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::{self, Watch};
 use esp_hal::gpio::{AnyPin, DriveMode, Flex, Level, Output, OutputConfig, OutputPin};
 
-use crate::channel::RequestResponseChannel;
+use mainboard::channel::RequestResponseChannel;
 
 // ============================================================================
 // TYPES
@@ -45,7 +45,7 @@ pub enum PinState {
     InHigh,     // Pin is reading as high (VCC)
     DrivingLow,  // Pin is being pulled down
     DrivingHigh, // Pin is being pulled up
-    
+
     // Error state
     FunckingBad, // Invalid or undetermined state
 }
@@ -144,14 +144,14 @@ pub fn spawn_digital_io(
 fn pin_state(pin: &Flex<'_>, mode: PinMode) -> PinState {
     let is_high = pin.is_high();
     let is_set_high = pin.is_set_high();
-    
+
     match (is_high, is_set_high, mode) {
         // Open-drain mode
         (true, true, PinMode::OpenDrain) => PinState::InHigh,  // Floating, reading high
         (false, true, PinMode::OpenDrain) => PinState::InLow,  // Floating, reading low
         (false, false, PinMode::OpenDrain) => PinState::DrivingLow,
         (true, false, PinMode::OpenDrain) => PinState::FunckingBad, // Shouldn't happen
-        
+
         // Push-pull mode
         (true, true, PinMode::PushPull) => PinState::DrivingHigh,
         (false, false, PinMode::PushPull) => PinState::DrivingLow,
@@ -216,7 +216,7 @@ async fn digital_pin_task(output_id: DigitalPinID, pin: AnyPin<'static>, initial
                     },
                 }
             },
-            
+
             // Handle pin edge
             Either::Second(_) => {
                 // do nothing, just update the state
@@ -236,7 +236,7 @@ pub struct DigitalIoHandle {
 
 impl DigitalIoHandle {
     /// Set the output state
-    /// 
+    ///
     /// # Arguments
     /// * `output_id` - Which output to control
     /// * `state` - Interpretation depends on current mode:
@@ -253,7 +253,7 @@ impl DigitalIoHandle {
     }
 
     /// Set the pin mode
-    /// 
+    ///
     /// # Arguments
     /// * `output_id` - Which pin to configure
     /// * `mode` - The desired mode (Input, OpenDrain, or PushPull)

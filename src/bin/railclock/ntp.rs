@@ -4,10 +4,9 @@ use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_time::{Duration, Instant, Timer};
 use mcp794xx::NaiveDateTime;
 use smoltcp::wire::DnsQueryType;
-use sntpc::{NtpContext, NtpTimestampGenerator, NtpUdpSocket, get_time};
+use sntpc::{NtpContext, NtpTimestampGenerator, get_time};
 use defmt::{info, error};
 
-use crate::ESP_WIFI_RES;
 use crate::rtc::RTC;
 use crate::wifi::WifiResources;
 use crate::config::NTP_SERVER;

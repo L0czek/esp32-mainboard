@@ -13,13 +13,9 @@ mod rtc;
 mod wifi;
 mod ntp;
 
-use alloc::rc::Rc;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::select::select;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
-use embassy_sync::rwlock::RwLock;
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::timer::timg::TimerGroup;

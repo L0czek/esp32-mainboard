@@ -11,7 +11,7 @@ use esp_hal::{
     peripherals::*,
 };
 
-use crate::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin};
+use mainboard::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin};
 
 // ============================================================================
 // TYPES
@@ -63,7 +63,7 @@ impl Default for VoltageMonitorCalibrationConfig {
             a2_calibration: 3129,  // 22K / 10K -> 3.2, calibrated
             a3_calibration: 3136,  // 22K / 10K -> 3.2, calibrated
             //a4_calibration: 968,  // 10K / inf -> 1.0, calibrated
-            a4_calibration: 14316,  // ^ with another divider on the connector-main-computer board 
+            a4_calibration: 14316,  // ^ with another divider on the connector-main-computer board
         }
     }
 }
@@ -73,13 +73,13 @@ impl Default for VoltageMonitorCalibrationConfig {
 // ============================================================================
 
 // ADC state management
-static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = 
+static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> =
     watch::Watch::new();
 
 pub type AdcStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, AdcState, 4>;
 
 // ADC buffer data pubsub channel (for full recorded buffers)
-static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> = 
+static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> =
     PubSubChannel::new();
 
 pub type AdcBufferSubscriber = embassy_sync::pubsub::Subscriber<'static, CriticalSectionRawMutex, AdcBufferData, 2, 4, 1>;
@@ -234,7 +234,7 @@ pub async fn adc_task(
 
         // Publish full buffer data
         publisher.publish_immediate(buffer);
-        
+
         sequence = sequence.wrapping_add(1);
     }
 }

@@ -14,8 +14,13 @@ use alloc::vec::Vec;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use mainboard::power::PowerControllerStats;
 use mainboard::tasks::{
-    AdcHandle, DigitalIoHandle, DigitalPinID, PinMode, PowerHandle, PowerResponse, UartHandle,
+    PowerHandle, PowerResponse,
 };
+use crate::uart::UartHandle;
+use crate::digital_io::PinMode;
+use crate::digital_io::DigitalIoHandle;
+use crate::DigitalPinID;
+use crate::AdcHandle;
 
 use crate::wifi::WifiResources;
 use bq24296m;

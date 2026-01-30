@@ -1,16 +1,10 @@
-use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use embedded_hal_bus::i2c::AtomicError;
-use mainboard::I2cType;
 use mainboard::{board::acquire_i2c_bus, channel::RequestResponseChannel};
-use mcp794xx::Mcp794xx;
 use mcp794xx::NaiveDateTime;
 use mcp794xx::DateTimeAccess;
-use mcp794xx::ic::Mcp79400;
 use defmt::info;
-use defmt::Format;
-use alloc::format;
 
 #[derive(Debug)]
 pub(crate) enum RtcRequest {
@@ -89,7 +83,7 @@ impl RtcClient {
         }
     }
 
-    pub async fn read_nonvolatile(&self, addr: u8, size: u8) -> Result<Vec<u8>, RtcClientError> {
+    pub async fn read_nonvolatile(&self, _addr: u8, _size: u8) -> Result<Vec<u8>, RtcClientError> {
         info!("Reading RTC state");
         // match RTC_CHANNEL.transact(RtcRequest::ReadNonvolatileMem { addr, size }).await {
         //     RtcResponse::NonvolatileMem(v) => Ok(v),
