@@ -18,7 +18,7 @@ use crate::config::{MQTT_CLIENT_ID, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT, MQTT_US
 use crate::wifi::WifiResources;
 
 const RECONNECT_DELAY_MS: u64 = 5000;
-const KEEPALIVE_SECS: u16 = 60;
+const MQTT_KEEPALIVE_SECS: u16 = 10;
 const BUFFER_SIZE: usize = 4096;
 
 // Static buffers for MQTT - allocated once, reused across reconnections
@@ -109,8 +109,6 @@ async fn mqtt_connection_loop(
 
     // Create TCP socket with static buffers
     let mut socket = TcpSocket::new(*sta_stack, tcp_rx_buf, tcp_tx_buf);
-    socket.set_timeout(Some(Duration::from_secs(30)));
-    socket.set_keep_alive(Some(Duration::from_secs(KEEPALIVE_SECS as u64)));
 
     // Connect TCP socket
     info!("MQTT: Connecting TCP to port {}", MQTT_PORT);
@@ -138,7 +136,7 @@ async fn mqtt_connection_loop(
 
     let connect_options = ConnectOptions {
         clean_start: true,
-        keep_alive: KeepAlive::Seconds(KEEPALIVE_SECS),
+        keep_alive: KeepAlive::Seconds(MQTT_KEEPALIVE_SECS),
         session_expiry_interval: SessionExpiryInterval::default(),
         user_name,
         password,
