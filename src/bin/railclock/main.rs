@@ -12,6 +12,9 @@ mod driver;
 mod rtc;
 mod wifi;
 mod ntp;
+mod mqtt_queue;
+mod battery;
+mod mqtt;
 
 use alloc::format;
 use defmt::{error, info};
@@ -35,6 +38,7 @@ use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
 use crate::config::BUTTON_DELAY_MS;
 use crate::driver::{ClockDriver, spawn_clock_task};
+use crate::mqtt::mqtt_task;
 use crate::ntp::sync_time_with_ntp;
 use crate::rtc::{RTC, rtc_handler};
 use crate::wifi::{WifiResources, initialize_wifi};
@@ -45,6 +49,7 @@ static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::
 static ESP_WIFI_RES: StaticCell<WifiResources> = StaticCell::new();
 static CLOCK_DRIVER: OnceLock<ClockDriver> = OnceLock::new();
 static RTC_INT_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub static NTP_TRIGGER: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -105,6 +110,21 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(listen_on_buttons(board.D0)).expect("Failed to spawn manual controll pin task");
 
     spawner.spawn(listen_on_tick()).expect("Failed to spawn task awaiting RTC interrupts");
+
+    // Spawn battery monitor (ADC) which will publish its readings via MQTT helper
+    let adc_config = esp_hal::analog::adc::AdcConfig::new();
+    let battery_cal: battery::BatteryCalibration = Default::default();
+    let battery = battery::spawn_battery_task(
+        &spawner,
+        peripherals.ADC1,
+        adc_config,
+        battery_cal,
+        board.BatVol,
+        Some(crate::config::BATTERY_PUBLISH_INTERVAL_SECS),
+        Some("sensor/battery"),
+    );
+
+    spawner.spawn(mqtt_task(wifi_res)).expect("Failed to spawn mqtt task");
 
     // With no battery I disabled the charging to stop interrupts trying to tell me that battery is
     // missing will fix later
