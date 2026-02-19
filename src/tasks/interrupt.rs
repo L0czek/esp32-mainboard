@@ -24,7 +24,7 @@ pub fn spawn_ext_interrupt_task(
     spawner: &Spawner,
     line: GPIO7<'static>,
     power: PowerHandle,
-    other: &'static Signal<CriticalSectionRawMutex, ()>
+    other: Option<&'static Signal<CriticalSectionRawMutex, ()>>,
 ) {
     if EXT_INTERRUPT_STARTED
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -43,7 +43,11 @@ pub fn spawn_ext_interrupt_task(
 // ============================================================================
 
 #[embassy_executor::task]
-pub async fn ext_interrupt_task(line: GPIO7<'static>, power: PowerHandle, other: &'static Signal<CriticalSectionRawMutex, ()>) {
+pub async fn ext_interrupt_task(
+    line: GPIO7<'static>,
+    power: PowerHandle,
+    other: Option<&'static Signal<CriticalSectionRawMutex, ()>>,
+) {
     let mut pin = Input::new(
         line,
         InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
@@ -59,6 +63,7 @@ pub async fn ext_interrupt_task(line: GPIO7<'static>, power: PowerHandle, other:
             }
         }
 
-        other.signal(());
+        // Use map to invoke the signal if present
+        other.map(|i| i.signal(()));
     }
 }

@@ -69,7 +69,7 @@ async fn main(spawner: Spawner) -> ! {
         .spawn(log_power_state_changes_task(power_receiver))
         .expect("Failed to spawn log_power_state_changes_task");
 
-    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
+    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power, None);
 
     loop {
         info!("Hello world!");

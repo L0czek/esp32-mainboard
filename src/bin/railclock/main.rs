@@ -99,7 +99,7 @@ async fn main(spawner: Spawner) -> ! {
     let power_receiver = power.state_receiver().expect("Failed to get power state receiver");
     spawner.spawn(log_power_state_changes_task(power_receiver)).expect("Failed to spawn log_power_state_changes_task");
 
-    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power, &RTC_INT_SIGNAL);
+    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power, Some(&RTC_INT_SIGNAL));
 
     spawner.spawn(sync_time_with_ntp(wifi_res)).expect("Failed to start ntp sync task");
 
