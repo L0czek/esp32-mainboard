@@ -4,7 +4,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 
 ## Repository layout
 
-- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`).
+- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`).
 - `rust-toolchain.toml` — pinned Rust toolchain for the project.
 - `src/` — library and binary sources:
   - `board.rs` — board-specific wiring and helper functions.
@@ -13,6 +13,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
   - `bin/` — firmware entrypoints:
     - `www_test/` — web server + diagnostic target (primary example).
     - `empty/` — minimal/empty binary.
+    - `test_stand_controller/` — test stand firmware (power, WiFi, MQTT command + sensor pipeline).
 
 ## What this repo provides
 
@@ -30,6 +31,12 @@ To build the minimal `empty` binary:
 
 ```sh
 cargo build --release --bin empty
+```
+
+To build the `test_stand_controller` binary:
+
+```sh
+WIFI_SSID=... WIFI_PASSWORD=... MQTT_HOST=... cargo build --release --bin test_stand_controller
 ```
 
 ## Flashing / Running
@@ -54,6 +61,24 @@ cargo run --bin www_test            # or add --release for an optimized build
 
 After the device boots, the `www_test` firmware runs a small web server and prints network/diagnostic info to the serial console (watch the serial log to discover the device IP or status messages).
 
+## MQTT in `test_stand_controller`
+
+- MQTT code is split under `src/bin/test_stand_controller/mqtt/`:
+  - `client.rs` — connection/session loop with `select` over inbound MQTT events and outbound queue.
+  - `queue.rs` — global outbound queue (capacity 128) and enqueue API.
+  - `sensors/` — raw binary packet models + encoders for fast/slow sensors and statuses.
+  - `commands/` — command decoders (`cmd/state`, `cmd/servo`) and trait-based handlers.
+  - `topics.rs` — prefixed topic constants (`test-stand/...`) and topic utilities.
+- Data collection integration entrypoints:
+  - `publish_fast_sensors(...)`
+  - `publish_slow_sensors(...)`
+  - `publish_temperature_sensor(...)`
+  - `publish_armed_sensor(...)`
+- Sensor collection runtime:
+  - `sensor_collection_task` reads raw ADC values.
+  - Fast channels (A0/A1/A2) are batched into 100 samples with 1ms spacing per sample.
+  - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
+
 ## Using `www_test`
 
 - The `www_test` target exposes a tiny web UI that lets you:
@@ -63,4 +88,3 @@ After the device boots, the `www_test` firmware runs a small web server and prin
   - Query and control the board power controller (battery/charger/12V boost status)
 
 - Open the device web UI at the IP address shown on the serial console after boot.
-

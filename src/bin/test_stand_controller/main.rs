@@ -9,6 +9,7 @@
 
 mod config;
 mod mqtt;
+mod sensor_collection;
 mod wifi;
 
 use crate::wifi::WifiResources;
@@ -38,7 +39,9 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 #[allow(
     clippy::large_stack_frames,
-    reason = "it's not unusual to allocate larger buffers etc. in main"
+    unreachable_code,
+    reason = "Main setup uses large stack objects and keeps staged unreachable shutdown code until \
+    a shutdown trigger is implemented."
 )]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
@@ -72,6 +75,17 @@ async fn main(spawner: Spawner) {
     let radio_init =
         ESP_RADIO_INIT.init(esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller"));
 
+    let sensor_collection_io = sensor_collection::SensorCollectionIo {
+        adc: peripherals.ADC1,
+        tensometer: board.A0,
+        pressure_tank: board.A1,
+        pressure_combustion: board.A2,
+        starter_sense: board.A3,
+        battery_stand: board.A4,
+        battery_computer: board.BatVol,
+        boost_voltage: board.BoostVol,
+    };
+
     let power_config = Default::default();
     let power_io = PowerControllerIO {
         charger_i2c: acquire_i2c_bus(),
@@ -102,6 +116,13 @@ async fn main(spawner: Spawner) {
         .spawn(mqtt::mqtt_task(wifi_resources))
         .expect("Failed to spawn mqtt_task");
     info!("MQTT task spawned");
+
+    spawner
+        .spawn(sensor_collection::sensor_collection_task(
+            sensor_collection_io,
+        ))
+        .expect("Failed to spawn sensor_collection_task");
+    info!("Sensor collection task spawned");
 
     loop {
         embassy_time::Timer::after_secs(1).await

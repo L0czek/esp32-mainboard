@@ -4,7 +4,12 @@
 Current work scope is `src/bin/test_stand_controller/` only.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
-- `src/bin/test_stand_controller/mqtt.rs`: DNS, TCP, MQTT session, subscribe/publish loop.
+- `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
+- `src/bin/test_stand_controller/mqtt/client.rs`: DNS, TCP, MQTT session, command subscribe, event/select loop.
+- `src/bin/test_stand_controller/mqtt/queue.rs`: global outbound queue and public publish API.
+- `src/bin/test_stand_controller/mqtt/sensors/`: binary sensor/status payload types + encoders.
+- `src/bin/test_stand_controller/mqtt/commands/`: command decoding + handler traits + mock handlers.
+- `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
 - `src/bin/test_stand_controller/config.rs`: compile-time env configuration.
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
 
@@ -20,7 +25,14 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - Boot sequence is implemented: RTT logging, Embassy runtime startup, heap allocation, board pin mapping, shared I2C bus init.
 - Power stack is active via shared tasks: charger/expander setup, watchdog reset loop, interrupt-driven mode switching (Charging vs OTG), state watch channel, and boost/shipping-mode commands.
 - WiFi is implemented in STA mode with DHCP and reconnect-on-disconnect behavior.
-- MQTT is implemented with reconnect loop: DNS resolve broker, TCP connect, MQTT connect, subscribe to `test-stand/command`, publish `online` to `test-stand/status`, and echo payloads to `test-stand/response`.
+- MQTT is implemented with reconnect loop and modular client:
+- global outbound queue (`embassy_sync::channel`, capacity 128) with enum messages for all sensor/status payloads.
+- non-blocking enqueue API for data collection (`publish_fast_sensors`, `publish_slow_sensors`,
+  `publish_temperature_sensor`, `publish_armed_sensor`).
+- sensor collection task reads raw ADC values for A0/A1/A2 fast channels and A3/A4/BatVol/BoostVol
+  slow channels. It batches fast channels into 100 samples collected at 1ms spacing.
+- binary payload encoding for fast/slow ADC, armed digital stream, temperature streams, and servo sensor.
+- command subscribe/dispatch on `test-stand/cmd/state` and `test-stand/cmd/servo` with trait-based mock handlers.
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - Known gap: shutdown path in `main.rs` is unreachable due an infinite loop before the shutdown sequence.
 

@@ -128,9 +128,9 @@ impl ExpanderStatus {
     }
 }
 
-impl Into<u8> for ExpanderStatus {
-    fn into(self) -> u8 {
-        self.reg.into()
+impl From<ExpanderStatus> for u8 {
+    fn from(value: ExpanderStatus) -> Self {
+        value.reg.into()
     }
 }
 
