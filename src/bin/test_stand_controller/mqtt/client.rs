@@ -1,6 +1,7 @@
 use defmt::{debug, error, info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use rust_mqtt::buffer::BumpBuffer;
 use rust_mqtt::client::event::Event;
@@ -15,8 +16,14 @@ use static_cell::StaticCell;
 
 use crate::config::{MQTT_CLIENT_ID, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT, MQTT_USER};
 use crate::mqtt::codec::EncodeError;
-use crate::mqtt::commands::{CommandDispatcher, MockCommandHandlers};
+use crate::mqtt::commands::servo::ServoCommand;
+use crate::mqtt::commands::shutdown::ShutdownCommand;
+use crate::mqtt::commands::state::StateCommand;
+use crate::mqtt::commands::{
+    CommandDispatcher, ServoCommandHandler, ShutdownCommandHandler, StateCommandHandler,
+};
 use crate::mqtt::queue::{self, OutboundMessage};
+use crate::mqtt::sensors::status::StateStatus;
 use crate::mqtt::sensors::EncodablePayload;
 use crate::mqtt::topics::{
     self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_STATUS_CMD,
@@ -45,8 +52,69 @@ enum AppMqttError {
     MqttError,
 }
 
+struct AppCommandHandlers {
+    state: StateStatus,
+    shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>,
+}
+
+impl AppCommandHandlers {
+    const fn new(shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>) -> Self {
+        Self {
+            state: StateStatus::Armed,
+            shutdown_signal,
+        }
+    }
+}
+
+impl StateCommandHandler for AppCommandHandlers {
+    fn handle_state_command(&mut self, command: StateCommand) {
+        match command {
+            StateCommand::Fire => {
+                self.state = StateStatus::Fire;
+                info!("MQTT command: FIRE");
+            }
+            StateCommand::FireEnd => {
+                self.state = StateStatus::PostFire;
+                info!("MQTT command: FIRE_END");
+            }
+            StateCommand::FireReset => {
+                self.state = StateStatus::Armed;
+                info!("MQTT command: FIRE_RESET");
+            }
+        }
+    }
+}
+
+impl ServoCommandHandler for AppCommandHandlers {
+    fn handle_servo_command(&mut self, command: ServoCommand) {
+        if self.state == StateStatus::Fire {
+            warn!("MQTT command ignored: cmd/servo in FIRE state");
+            return;
+        }
+
+        match command {
+            ServoCommand::Open => info!("MQTT command: OPEN"),
+            ServoCommand::Close => info!("MQTT command: CLOSE"),
+        }
+    }
+}
+
+impl ShutdownCommandHandler for AppCommandHandlers {
+    fn handle_shutdown_command(&mut self, command: ShutdownCommand) {
+        match command {
+            ShutdownCommand::Shutdown => {
+                info!("MQTT command: SHUTDOWN");
+                self.shutdown_signal.signal(());
+            }
+        }
+    }
+}
+
 #[embassy_executor::task]
-pub async fn mqtt_task(wifi: &'static WifiResources) {
+pub async fn mqtt_task(
+    wifi: &'static WifiResources,
+    shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>,
+) {
     let tcp_rx_buf = TCP_RX_BUF.init([0u8; TCP_BUFFER_SIZE]);
     let tcp_tx_buf = TCP_TX_BUF.init([0u8; TCP_BUFFER_SIZE]);
     let mqtt_buf = MQTT_BUF.init([0u8; MQTT_BUFFER_SIZE]);
@@ -55,8 +123,14 @@ pub async fn mqtt_task(wifi: &'static WifiResources) {
         wifi.sta_stack.wait_link_up().await;
         wifi.sta_stack.wait_config_up().await;
 
-        if let Err(error) =
-            mqtt_connection_loop(&wifi.sta_stack, tcp_rx_buf, tcp_tx_buf, mqtt_buf).await
+        if let Err(error) = mqtt_connection_loop(
+            &wifi.sta_stack,
+            tcp_rx_buf,
+            tcp_tx_buf,
+            mqtt_buf,
+            shutdown_signal,
+        )
+        .await
         {
             error!("MQTT session ended: {:?}", &error);
         }
@@ -71,6 +145,7 @@ async fn mqtt_connection_loop(
     tcp_rx_buf: &mut [u8; TCP_BUFFER_SIZE],
     tcp_tx_buf: &mut [u8; TCP_BUFFER_SIZE],
     mqtt_buf: &mut [u8; MQTT_BUFFER_SIZE],
+    shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>,
 ) -> Result<(), AppMqttError> {
     let endpoint = resolve_mqtt_endpoint(sta_stack).await?;
 
@@ -94,7 +169,7 @@ async fn mqtt_connection_loop(
         .map_err(|_| AppMqttError::MqttError)?;
 
     subscribe_to_commands(&mut client).await?;
-    run_session_loop(&mut client).await
+    run_session_loop(&mut client, shutdown_signal).await
 }
 
 async fn resolve_mqtt_endpoint(
@@ -161,8 +236,11 @@ async fn subscribe_to_commands(client: &mut AppClient<'_, '_>) -> Result<(), App
     Ok(())
 }
 
-async fn run_session_loop(client: &mut AppClient<'_, '_>) -> Result<(), AppMqttError> {
-    let mut dispatcher = CommandDispatcher::new(MockCommandHandlers::new());
+async fn run_session_loop(
+    client: &mut AppClient<'_, '_>,
+    shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>,
+) -> Result<(), AppMqttError> {
+    let mut dispatcher = CommandDispatcher::new(AppCommandHandlers::new(shutdown_signal));
     let mut payload_buffer = [0u8; MQTT_PAYLOAD_BUFFER_SIZE];
     let mut temp_topic_buffer = [0u8; TEMP_TOPIC_BUFFER_LEN];
 
@@ -185,10 +263,10 @@ async fn run_session_loop(client: &mut AppClient<'_, '_>) -> Result<(), AppMqttE
     }
 }
 
-fn handle_incoming_event(
-    event: Event<'_>,
-    dispatcher: &mut CommandDispatcher<MockCommandHandlers>,
-) {
+fn handle_incoming_event<H>(event: Event<'_>, dispatcher: &mut CommandDispatcher<H>)
+where
+    H: StateCommandHandler + ServoCommandHandler + ShutdownCommandHandler,
+{
     if let Event::Publish(publish) = event {
         let topic: &str = publish.topic.as_ref();
         let payload: &[u8] = publish.message.as_ref();

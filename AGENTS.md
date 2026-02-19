@@ -2,6 +2,7 @@
 
 ## Project Structure & Module Organization
 Current work scope is `src/bin/test_stand_controller/` only.
+- `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
@@ -9,6 +10,7 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/bin/test_stand_controller/mqtt/queue.rs`: global outbound queue and public publish API.
 - `src/bin/test_stand_controller/mqtt/sensors/`: binary sensor/status payload types + encoders.
 - `src/bin/test_stand_controller/mqtt/commands/`: command decoding + handler traits + mock handlers.
+- `src/bin/test_stand_controller/mqtt/commands/shutdown.rs`: `SHUTDOWN` command decoder.
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
 - `src/bin/test_stand_controller/config.rs`: compile-time env configuration.
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
@@ -32,9 +34,10 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - sensor collection task reads raw ADC values for A0/A1/A2 fast channels and A3/A4/BatVol/BoostVol
   slow channels. It batches fast channels into 100 samples collected at 1ms spacing.
 - binary payload encoding for fast/slow ADC, armed digital stream, temperature streams, and servo sensor.
-- command subscribe/dispatch on `cmd/state` and `cmd/servo` with trait-based mock handlers.
+- command subscribe/dispatch on `cmd/state`, `cmd/servo`, and `cmd/shutdown` (`SHUTDOWN` payload)
+  with trait-based handlers.
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
-- Known gap: shutdown path in `main.rs` is unreachable due an infinite loop before the shutdown sequence.
+- `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
 
 ## Coding Style & Naming Conventions
 Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiomatic Rust naming:

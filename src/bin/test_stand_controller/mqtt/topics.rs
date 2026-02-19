@@ -4,12 +4,10 @@ use rust_mqtt::types::{MqttString, TopicFilter, TopicName};
 
 pub const TOPIC_SENSOR_ADC_FAST_TENSOMETER: &str = "sensor/adc/fast/tensometer";
 pub const TOPIC_SENSOR_ADC_FAST_PRESSURE_TANK: &str = "sensor/adc/fast/pressure/tank";
-pub const TOPIC_SENSOR_ADC_FAST_PRESSURE_COMBUSTION: &str =
-    "sensor/adc/fast/pressure/combustion";
+pub const TOPIC_SENSOR_ADC_FAST_PRESSURE_COMBUSTION: &str = "sensor/adc/fast/pressure/combustion";
 
 pub const TOPIC_SENSOR_ADC_SLOW_BATTERY_STAND: &str = "sensor/adc/slow/battery/stand";
-pub const TOPIC_SENSOR_ADC_SLOW_BATTERY_COMPUTER: &str =
-    "sensor/adc/slow/battery/computer";
+pub const TOPIC_SENSOR_ADC_SLOW_BATTERY_COMPUTER: &str = "sensor/adc/slow/battery/computer";
 pub const TOPIC_SENSOR_ADC_SLOW_BOOST_VOLTAGE: &str = "sensor/adc/slow/boost_voltage";
 pub const TOPIC_SENSOR_ADC_SLOW_STARTER_SENSE: &str = "sensor/adc/slow/starter_sense";
 
@@ -19,12 +17,13 @@ pub const TOPIC_SENSOR_SERVO: &str = "sensor/servo";
 
 pub const TOPIC_CMD_STATE: &str = "cmd/state";
 pub const TOPIC_CMD_SERVO: &str = "cmd/servo";
+pub const TOPIC_CMD_SHUTDOWN: &str = "cmd/shutdown";
 
 pub const TOPIC_STATUS_STATE: &str = "status/state";
 pub const TOPIC_STATUS_SERVO: &str = "status/servo";
 pub const TOPIC_STATUS_CMD: &str = "status/cmd";
 
-pub const COMMAND_TOPICS: [&str; 2] = [TOPIC_CMD_STATE, TOPIC_CMD_SERVO];
+pub const COMMAND_TOPICS: [&str; 3] = [TOPIC_CMD_STATE, TOPIC_CMD_SERVO, TOPIC_CMD_SHUTDOWN];
 
 pub const TEMP_TOPIC_BUFFER_LEN: usize = 32;
 

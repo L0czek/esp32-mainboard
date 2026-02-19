@@ -6,6 +6,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 
 - `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`).
 - `rust-toolchain.toml` — pinned Rust toolchain for the project.
+- `scripts/` — helper scripts for common local workflows.
 - `src/` — library and binary sources:
   - `board.rs` — board-specific wiring and helper functions.
   - `power/` — power controller driver and helpers.
@@ -67,8 +68,13 @@ After the device boots, the `www_test` firmware runs a small web server and prin
   - `client.rs` — connection/session loop with `select` over inbound MQTT events and outbound queue.
   - `queue.rs` — global outbound queue (capacity 128) and enqueue API.
   - `sensors/` — raw binary packet models + encoders for fast/slow sensors and statuses.
-  - `commands/` — command decoders (`cmd/state`, `cmd/servo`) and trait-based handlers.
+  - `commands/` — command decoders (`cmd/state`, `cmd/servo`, `cmd/shutdown`) and handlers.
   - `topics.rs` — prefixed topic constants (`...`) and topic utilities.
+- `cmd/shutdown` accepts payload `SHUTDOWN` and triggers shipping-mode + deep-sleep shutdown.
+- Helper script to send the shutdown command:
+```sh
+MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
+```
 - Data collection integration entrypoints:
   - `publish_fast_sensors(...)`
   - `publish_slow_sensors(...)`

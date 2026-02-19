@@ -1,12 +1,14 @@
 pub mod servo;
+pub mod shutdown;
 pub mod state;
 
 use defmt::{info, warn};
 
 use crate::mqtt::commands::servo::ServoCommand;
+use crate::mqtt::commands::shutdown::ShutdownCommand;
 use crate::mqtt::commands::state::StateCommand;
 use crate::mqtt::sensors::status::StateStatus;
-use crate::mqtt::topics::{TOPIC_CMD_SERVO, TOPIC_CMD_STATE};
+use crate::mqtt::topics::{TOPIC_CMD_SERVO, TOPIC_CMD_SHUTDOWN, TOPIC_CMD_STATE};
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
 pub enum CommandError {
@@ -22,11 +24,16 @@ pub trait ServoCommandHandler {
     fn handle_servo_command(&mut self, command: ServoCommand);
 }
 
-pub struct CommandDispatcher<H: StateCommandHandler + ServoCommandHandler> {
+pub trait ShutdownCommandHandler {
+    fn handle_shutdown_command(&mut self, command: ShutdownCommand);
+}
+
+pub struct CommandDispatcher<H: StateCommandHandler + ServoCommandHandler + ShutdownCommandHandler>
+{
     handlers: H,
 }
 
-impl<H: StateCommandHandler + ServoCommandHandler> CommandDispatcher<H> {
+impl<H: StateCommandHandler + ServoCommandHandler + ShutdownCommandHandler> CommandDispatcher<H> {
     pub const fn new(handlers: H) -> Self {
         Self { handlers }
     }
@@ -41,6 +48,12 @@ impl<H: StateCommandHandler + ServoCommandHandler> CommandDispatcher<H> {
         if topic == TOPIC_CMD_SERVO {
             let command = ServoCommand::decode(payload).ok_or(CommandError::InvalidPayload)?;
             self.handlers.handle_servo_command(command);
+            return Ok(());
+        }
+
+        if topic == TOPIC_CMD_SHUTDOWN {
+            let command = ShutdownCommand::decode(payload).ok_or(CommandError::InvalidPayload)?;
+            self.handlers.handle_shutdown_command(command);
             return Ok(());
         }
 
@@ -89,6 +102,14 @@ impl ServoCommandHandler for MockCommandHandlers {
         match command {
             ServoCommand::Open => info!("MQTT command: OPEN"),
             ServoCommand::Close => info!("MQTT command: CLOSE"),
+        }
+    }
+}
+
+impl ShutdownCommandHandler for MockCommandHandlers {
+    fn handle_shutdown_command(&mut self, command: ShutdownCommand) {
+        match command {
+            ShutdownCommand::Shutdown => info!("MQTT command: SHUTDOWN"),
         }
     }
 }
