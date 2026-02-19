@@ -68,7 +68,7 @@ After the device boots, the `www_test` firmware runs a small web server and prin
   - `queue.rs` — global outbound queue (capacity 128) and enqueue API.
   - `sensors/` — raw binary packet models + encoders for fast/slow sensors and statuses.
   - `commands/` — command decoders (`cmd/state`, `cmd/servo`) and trait-based handlers.
-  - `topics.rs` — prefixed topic constants (`test-stand/...`) and topic utilities.
+  - `topics.rs` — prefixed topic constants (`...`) and topic utilities.
 - Data collection integration entrypoints:
   - `publish_fast_sensors(...)`
   - `publish_slow_sensors(...)`

@@ -32,7 +32,7 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - sensor collection task reads raw ADC values for A0/A1/A2 fast channels and A3/A4/BatVol/BoostVol
   slow channels. It batches fast channels into 100 samples collected at 1ms spacing.
 - binary payload encoding for fast/slow ADC, armed digital stream, temperature streams, and servo sensor.
-- command subscribe/dispatch on `test-stand/cmd/state` and `test-stand/cmd/servo` with trait-based mock handlers.
+- command subscribe/dispatch on `cmd/state` and `cmd/servo` with trait-based mock handlers.
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - Known gap: shutdown path in `main.rs` is unreachable due an infinite loop before the shutdown sequence.
 

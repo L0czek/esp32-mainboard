@@ -2,27 +2,27 @@ use core::str;
 
 use rust_mqtt::types::{MqttString, TopicFilter, TopicName};
 
-pub const TOPIC_SENSOR_ADC_FAST_TENSOMETER: &str = "test-stand/sensor/adc/fast/tensometer";
-pub const TOPIC_SENSOR_ADC_FAST_PRESSURE_TANK: &str = "test-stand/sensor/adc/fast/pressure/tank";
+pub const TOPIC_SENSOR_ADC_FAST_TENSOMETER: &str = "sensor/adc/fast/tensometer";
+pub const TOPIC_SENSOR_ADC_FAST_PRESSURE_TANK: &str = "sensor/adc/fast/pressure/tank";
 pub const TOPIC_SENSOR_ADC_FAST_PRESSURE_COMBUSTION: &str =
-    "test-stand/sensor/adc/fast/pressure/combustion";
+    "sensor/adc/fast/pressure/combustion";
 
-pub const TOPIC_SENSOR_ADC_SLOW_BATTERY_STAND: &str = "test-stand/sensor/adc/slow/battery/stand";
+pub const TOPIC_SENSOR_ADC_SLOW_BATTERY_STAND: &str = "sensor/adc/slow/battery/stand";
 pub const TOPIC_SENSOR_ADC_SLOW_BATTERY_COMPUTER: &str =
-    "test-stand/sensor/adc/slow/battery/computer";
-pub const TOPIC_SENSOR_ADC_SLOW_BOOST_VOLTAGE: &str = "test-stand/sensor/adc/slow/boost_voltage";
-pub const TOPIC_SENSOR_ADC_SLOW_STARTER_SENSE: &str = "test-stand/sensor/adc/slow/starter_sense";
+    "sensor/adc/slow/battery/computer";
+pub const TOPIC_SENSOR_ADC_SLOW_BOOST_VOLTAGE: &str = "sensor/adc/slow/boost_voltage";
+pub const TOPIC_SENSOR_ADC_SLOW_STARTER_SENSE: &str = "sensor/adc/slow/starter_sense";
 
-pub const TOPIC_SENSOR_DIGITAL_ARMED: &str = "test-stand/sensor/digital/armed";
-pub const TOPIC_SENSOR_TEMP_PREFIX: &str = "test-stand/sensor/temp/";
-pub const TOPIC_SENSOR_SERVO: &str = "test-stand/sensor/servo";
+pub const TOPIC_SENSOR_DIGITAL_ARMED: &str = "sensor/digital/armed";
+pub const TOPIC_SENSOR_TEMP_PREFIX: &str = "sensor/temp/";
+pub const TOPIC_SENSOR_SERVO: &str = "sensor/servo";
 
-pub const TOPIC_CMD_STATE: &str = "test-stand/cmd/state";
-pub const TOPIC_CMD_SERVO: &str = "test-stand/cmd/servo";
+pub const TOPIC_CMD_STATE: &str = "cmd/state";
+pub const TOPIC_CMD_SERVO: &str = "cmd/servo";
 
-pub const TOPIC_STATUS_STATE: &str = "test-stand/status/state";
-pub const TOPIC_STATUS_SERVO: &str = "test-stand/status/servo";
-pub const TOPIC_STATUS_CMD: &str = "test-stand/status/cmd";
+pub const TOPIC_STATUS_STATE: &str = "status/state";
+pub const TOPIC_STATUS_SERVO: &str = "status/servo";
+pub const TOPIC_STATUS_CMD: &str = "status/cmd";
 
 pub const COMMAND_TOPICS: [&str; 2] = [TOPIC_CMD_STATE, TOPIC_CMD_SERVO];
 
