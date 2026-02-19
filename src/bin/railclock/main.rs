@@ -9,31 +9,29 @@
 
 mod config;
 mod driver;
+mod ntp;
 mod rtc;
 mod wifi;
-mod ntp;
 
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::select::select;
+use embassy_sync::once_lock::OnceLock;
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Input, InputConfig};
 use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
-use embassy_sync::once_lock::OnceLock;
-use esp_hal::gpio::{Input, InputConfig};
 
-use mainboard::board::{A0Pin, Board, D0Pin, acquire_i2c_bus, init_i2c_bus};
-use mainboard::tasks::{
-    PowerStateReceiver, spawn_ext_interrupt_task, spawn_power_controller
-};
-use mainboard::create_board;
-use mainboard::power::PowerControllerIO;
-use crate::driver::{ClockDriver, spawn_clock_task};
+use crate::driver::{spawn_clock_task, ClockDriver};
 use crate::ntp::sync_time_with_ntp;
 use crate::rtc::rtc_handler;
-use crate::wifi::{WifiResources, initialize_wifi};
+use crate::wifi::{initialize_wifi, WifiResources};
+use mainboard::board::{acquire_i2c_bus, init_i2c_bus, A0Pin, Board, D0Pin};
+use mainboard::create_board;
+use mainboard::power::PowerControllerIO;
+use mainboard::tasks::{spawn_ext_interrupt_task, spawn_power_controller, PowerStateReceiver};
 
 extern crate alloc;
 
@@ -73,8 +71,10 @@ async fn main(spawner: Spawner) -> ! {
 
     info!("Initializing WiFi...");
     let mut rng = esp_hal::rng::Rng::new();
-    let radio_init = ESP_RADIO_INIT.init(esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller"));
-    let wifi_res = ESP_WIFI_RES.init(initialize_wifi(spawner, radio_init, peripherals.WIFI, &mut rng).await);
+    let radio_init =
+        ESP_RADIO_INIT.init(esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller"));
+    let wifi_res =
+        ESP_WIFI_RES.init(initialize_wifi(spawner, radio_init, peripherals.WIFI, &mut rng).await);
     info!("WiFi initialized!");
 
     CLOCK_DRIVER.get_or_init(|| ClockDriver::new());
@@ -86,14 +86,22 @@ async fn main(spawner: Spawner) -> ! {
         boost_converter_enable: board.BoostEn,
     };
     let power = spawn_power_controller(&spawner, power_config, power_io);
-    let power_receiver = power.state_receiver().expect("Failed to get power state receiver");
-    spawner.spawn(log_power_state_changes_task(power_receiver)).expect("Failed to spawn log_power_state_changes_task");
+    let power_receiver = power
+        .state_receiver()
+        .expect("Failed to get power state receiver");
+    spawner
+        .spawn(log_power_state_changes_task(power_receiver))
+        .expect("Failed to spawn log_power_state_changes_task");
 
     spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
 
-    spawner.spawn(sync_time_with_ntp(wifi_res)).expect("Failed to start ntp sync task");
+    spawner
+        .spawn(sync_time_with_ntp(wifi_res))
+        .expect("Failed to start ntp sync task");
 
-    spawner.spawn(rtc_handler()).expect("Cannot start RTC handling task");
+    spawner
+        .spawn(rtc_handler())
+        .expect("Cannot start RTC handling task");
 
     spawn_clock_task(&spawner, board.Motor0, board.Motor1, power);
 
@@ -103,8 +111,6 @@ async fn main(spawner: Spawner) -> ! {
         //CLOCK_DRIVER.get().await.push_forward(1);
     }
 }
-
-
 
 #[embassy_executor::task]
 async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
@@ -116,8 +122,14 @@ async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
 
 #[embassy_executor::task]
 async fn listen_on_buttons(bt0: A0Pin, bt1: D0Pin) {
-    let mut p0 = Input::new(bt0, InputConfig::default().with_pull(esp_hal::gpio::Pull::Up));
-    let mut p1 = Input::new(bt1, InputConfig::default().with_pull(esp_hal::gpio::Pull::Up));
+    let mut p0 = Input::new(
+        bt0,
+        InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
+    );
+    let mut p1 = Input::new(
+        bt1,
+        InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
+    );
 
     loop {
         match select(p0.wait_for_low(), p1.wait_for_low()).await {
@@ -128,5 +140,3 @@ async fn listen_on_buttons(bt0: A0Pin, bt1: D0Pin) {
         }
     }
 }
-
-

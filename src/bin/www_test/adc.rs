@@ -5,7 +5,7 @@ use defmt::Format;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::{pubsub::PubSubChannel, watch};
-use embassy_time::{Ticker, Duration};
+use embassy_time::{Duration, Ticker};
 use esp_hal::{
     analog::adc::{Adc, AdcCalLine, AdcConfig},
     peripherals::*,
@@ -22,8 +22,8 @@ const ADC_SAMPLE_INTERVAL_MS: u64 = 2;
 
 #[derive(Debug, Format, Clone)]
 pub struct AdcState {
-    pub battery_voltage: u16,  // in mV
-    pub boost_voltage: u16,    // in mV
+    pub battery_voltage: u16, // in mV
+    pub boost_voltage: u16,   // in mV
     pub a0: u16,
     pub a1: u16,
     pub a2: u16,
@@ -34,8 +34,8 @@ pub struct AdcState {
 #[derive(Debug, Format, Clone)]
 pub struct AdcBufferData {
     pub sequence: u32,
-    pub battery_voltage: [u16; ADC_BUFFER_SIZE],  // in mV
-    pub boost_voltage: [u16; ADC_BUFFER_SIZE],    // in mV
+    pub battery_voltage: [u16; ADC_BUFFER_SIZE], // in mV
+    pub boost_voltage: [u16; ADC_BUFFER_SIZE],   // in mV
     pub a0: [u16; ADC_BUFFER_SIZE],
     pub a1: [u16; ADC_BUFFER_SIZE],
     pub a2: [u16; ADC_BUFFER_SIZE],
@@ -58,12 +58,12 @@ impl Default for VoltageMonitorCalibrationConfig {
         Self {
             battery_voltage_calibration: 5624, // ?, calibrated
             boost_voltage_calibration: 13717,  // ?, calibrated
-            a0_calibration: 4774,  // 39K / 10K -> 4.9, calibrated
-            a1_calibration: 3100,  // 22K / 10K -> 3.2, calibrated
-            a2_calibration: 3129,  // 22K / 10K -> 3.2, calibrated
-            a3_calibration: 3136,  // 22K / 10K -> 3.2, calibrated
+            a0_calibration: 4774,              // 39K / 10K -> 4.9, calibrated
+            a1_calibration: 3100,              // 22K / 10K -> 3.2, calibrated
+            a2_calibration: 3129,              // 22K / 10K -> 3.2, calibrated
+            a3_calibration: 3136,              // 22K / 10K -> 3.2, calibrated
             //a4_calibration: 968,  // 10K / inf -> 1.0, calibrated
-            a4_calibration: 14316,  // ^ with another divider on the connector-main-computer board
+            a4_calibration: 14316, // ^ with another divider on the connector-main-computer board
         }
     }
 }
@@ -73,8 +73,7 @@ impl Default for VoltageMonitorCalibrationConfig {
 // ============================================================================
 
 // ADC state management
-static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> =
-    watch::Watch::new();
+static ADC_STATE: watch::Watch<CriticalSectionRawMutex, AdcState, 4> = watch::Watch::new();
 
 pub type AdcStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, AdcState, 4>;
 
@@ -82,7 +81,8 @@ pub type AdcStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, Ad
 static ADC_BUFFER_DATA: PubSubChannel<CriticalSectionRawMutex, AdcBufferData, 2, 4, 1> =
     PubSubChannel::new();
 
-pub type AdcBufferSubscriber = embassy_sync::pubsub::Subscriber<'static, CriticalSectionRawMutex, AdcBufferData, 2, 4, 1>;
+pub type AdcBufferSubscriber =
+    embassy_sync::pubsub::Subscriber<'static, CriticalSectionRawMutex, AdcBufferData, 2, 4, 1>;
 
 static ADC_STARTED: AtomicBool = AtomicBool::new(false);
 

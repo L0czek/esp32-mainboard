@@ -19,11 +19,7 @@ static EXT_INTERRUPT_STARTED: AtomicBool = AtomicBool::new(false);
 // SPAWN METHOD
 // ============================================================================
 
-pub fn spawn_ext_interrupt_task(
-    spawner: &Spawner,
-    line: GPIO7<'static>,
-    power: PowerHandle,
-) {
+pub fn spawn_ext_interrupt_task(spawner: &Spawner, line: GPIO7<'static>, power: PowerHandle) {
     if EXT_INTERRUPT_STARTED
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()

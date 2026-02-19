@@ -13,7 +13,7 @@ use crate::{
     channel::RequestResponseChannel,
     power::{
         PowerController, PowerControllerConfig, PowerControllerError, PowerControllerIO,
-        PowerControllerMode, PowerControllerStats
+        PowerControllerMode, PowerControllerStats,
     },
     I2cType,
 };
@@ -42,10 +42,11 @@ static POWER_CONTROL: RequestResponseChannel<PowerRequest, PowerResponse, 16> =
     RequestResponseChannel::with_static_channels();
 
 // Power state management
-static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> = 
+static POWER_STATE: watch::Watch<CriticalSectionRawMutex, PowerControllerStats, 4> =
     watch::Watch::new();
 
-pub type PowerStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, PowerControllerStats, 4>;
+pub type PowerStateReceiver =
+    watch::Receiver<'static, CriticalSectionRawMutex, PowerControllerStats, 4>;
 
 static POWER_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -114,21 +115,17 @@ fn handle_power_controller_command(
             pctl.disable_boost_converter();
             PowerResponse::Ok
         }
-        PowerRequest::CheckInterrupt => {
-            match handle_power_controller_interrupt(pctl) {
+        PowerRequest::CheckInterrupt => match handle_power_controller_interrupt(pctl) {
+            Ok(()) => PowerResponse::Ok,
+            Err(e) => PowerResponse::Err(e),
+        },
+        PowerRequest::EnterShippingMode => match pctl.read_stats() {
+            Ok(stats) => match pctl.enter_shipping_mode(&stats) {
                 Ok(()) => PowerResponse::Ok,
                 Err(e) => PowerResponse::Err(e),
-            }
-        }
-        PowerRequest::EnterShippingMode => {
-            match pctl.read_stats() {
-                Ok(stats) => match pctl.enter_shipping_mode(&stats) {
-                    Ok(()) => PowerResponse::Ok,
-                    Err(e) => PowerResponse::Err(e),
-                },
-                Err(e) => PowerResponse::Err(e),
-            }
-        }
+            },
+            Err(e) => PowerResponse::Err(e),
+        },
     }
 }
 
@@ -137,10 +134,7 @@ fn handle_power_controller_command(
 // ============================================================================
 
 #[embassy_executor::task]
-pub async fn power_controller_task(
-    config: PowerControllerConfig,
-    io: PowerControllerIO<I2cType>,
-) {
+pub async fn power_controller_task(config: PowerControllerConfig, io: PowerControllerIO<I2cType>) {
     let ping_time = config.i2c_watchdog_timer;
     let mut pctl = match PowerController::new(config, io) {
         Ok(controller) => controller,
@@ -216,7 +210,8 @@ impl PowerHandle {
     }
 
     pub async fn set_boost_converter(&self, enable: bool) -> PowerResponse {
-        self.transact(PowerRequest::EnableBoostConverter(enable)).await
+        self.transact(PowerRequest::EnableBoostConverter(enable))
+            .await
     }
 
     pub async fn check_interrupt(&self) -> PowerResponse {

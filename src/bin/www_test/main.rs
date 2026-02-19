@@ -19,11 +19,11 @@ use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
-    PowerResponse, PowerStateReceiver, spawn_ext_interrupt_task, spawn_power_controller
+    spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
 };
 
-use crate::adc::{AdcHandle, VoltageMonitorCalibrationConfig, spawn_adc_task};
-use crate::digital_io::{DigitalPinID, spawn_digital_io};
+use crate::adc::{spawn_adc_task, AdcHandle, VoltageMonitorCalibrationConfig};
+use crate::digital_io::{spawn_digital_io, DigitalPinID};
 use crate::server::ShutdownHandle;
 use crate::uart::spawn_uart_tasks;
 use defmt::info;

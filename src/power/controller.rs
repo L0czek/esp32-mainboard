@@ -1,12 +1,12 @@
 use super::{PowerControllerError, PowerControllerResult};
 use crate::board::BoostEnPin;
+use bitfields::bitfield;
 use bq24296m::{
     BatteryLowVoltageThreshold, BatteryRechargeThreshold, BoostCurrentLimit, BoostHotThreshold,
     ChargeTimer, ConfigurationRegisters, InputCurrentLimit, NewFaultRegister,
     PowerOnConfigurationRegister, StatusRegisters, SystemStatusRegister,
     ThermalRegulationThreshold, WatchdogTimer, BQ24296,
 };
-use bitfields::bitfield;
 use defmt::{debug, Format};
 use embedded_hal::i2c::I2c;
 use esp_hal::gpio::*;
@@ -181,12 +181,15 @@ impl PowerControllerStats {
         );
         debug!("  OTG Fault: {}", faults.is_otg_fault());
         debug!("  Watchdog Fault: {}", faults.is_watchdog_fault());
-        
+
         debug!("> Expander Status:");
         debug!("  Inputs:");
         debug!("    VBUS Present: {}", self.expander_status.vbus_present());
         debug!("    VBUS Flag: {}", self.expander_status.vbus_flg());
-        debug!("    DC Jack Present: {}", self.expander_status.dc_jack_present());
+        debug!(
+            "    DC Jack Present: {}",
+            self.expander_status.dc_jack_present()
+        );
         debug!("  Outputs:");
         debug!("    Charger Enable: {}", self.expander_status.chr_en());
         debug!("    Charger OTG: {}", self.expander_status.chr_otg());
@@ -239,7 +242,10 @@ pub struct PowerController<I2C: I2c> {
 }
 
 impl<I2C: I2c> PowerController<I2C> {
-    pub fn new(config: PowerControllerConfig, io: PowerControllerIO<I2C>) -> PowerControllerResult<Self, I2C> {
+    pub fn new(
+        config: PowerControllerConfig,
+        io: PowerControllerIO<I2C>,
+    ) -> PowerControllerResult<Self, I2C> {
         let charger = BQ24296::new(io.charger_i2c);
         let address = pcf857x::SlaveAddr::Alternative(true, false, true);
         let expander = Pcf8574::new(io.pcf8574_i2c, address);
@@ -340,12 +346,19 @@ impl<I2C: I2c> PowerController<I2C> {
             .map_err(PowerControllerError::I2cBusError)
     }
 
-    pub fn reconfigure(&mut self, f: impl FnOnce(&mut PowerControllerConfig)) -> PowerControllerResult<(), I2C> {
+    pub fn reconfigure(
+        &mut self,
+        f: impl FnOnce(&mut PowerControllerConfig),
+    ) -> PowerControllerResult<(), I2C> {
         f(&mut self.config);
         self.write_charger_config()
     }
 
-    pub fn switch_mode(&mut self, mode: PowerControllerMode, stats: &PowerControllerStats) -> PowerControllerResult<(), I2C> {
+    pub fn switch_mode(
+        &mut self,
+        mode: PowerControllerMode,
+        stats: &PowerControllerStats,
+    ) -> PowerControllerResult<(), I2C> {
         let mut status = stats.expander_status;
 
         match mode {
@@ -449,7 +462,10 @@ impl<I2C: I2c> PowerController<I2C> {
         self.boost_converter_enable.is_set_high()
     }
 
-    pub fn enter_shipping_mode(&mut self, stats: &PowerControllerStats) -> PowerControllerResult<(), I2C> {
+    pub fn enter_shipping_mode(
+        &mut self,
+        stats: &PowerControllerStats,
+    ) -> PowerControllerResult<(), I2C> {
         self.switch_mode(PowerControllerMode::Charging, stats)?;
 
         self.charger

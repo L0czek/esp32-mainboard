@@ -1,24 +1,26 @@
 use core::net::{IpAddr, SocketAddr};
 
+use defmt::{error, info};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_time::{Duration, Instant, Timer};
 use mcp794xx::NaiveDateTime;
 use smoltcp::wire::DnsQueryType;
-use sntpc::{NtpContext, NtpTimestampGenerator, get_time};
-use defmt::{info, error};
+use sntpc::{get_time, NtpContext, NtpTimestampGenerator};
 
+use crate::config::NTP_SERVER;
 use crate::rtc::RTC;
 use crate::wifi::WifiResources;
-use crate::config::NTP_SERVER;
 
 #[derive(Copy, Clone)]
 struct Timestamp {
-    instant: Instant
+    instant: Instant,
 }
 
 impl Default for Timestamp {
     fn default() -> Self {
-        Timestamp { instant: Instant::now() }
+        Timestamp {
+            instant: Instant::now(),
+        }
     }
 }
 
@@ -45,15 +47,19 @@ pub(crate) async fn sync_time_with_ntp(stack: &'static WifiResources) {
     let mut tx_buf = [0u8; 4096];
 
     // Create UDP socket bound to ephemeral port
-    let mut socket = UdpSocket::new(*sta_stack, &mut rx_meta, &mut rx_buf, &mut tx_meta, &mut tx_buf);
+    let mut socket = UdpSocket::new(
+        *sta_stack,
+        &mut rx_meta,
+        &mut rx_buf,
+        &mut tx_meta,
+        &mut tx_buf,
+    );
 
     socket.bind(0).unwrap();
 
     let ctx = NtpContext::new(Timestamp::default());
 
-    let ntp_addrs = sta_stack
-        .dns_query(NTP_SERVER, DnsQueryType::A)
-        .await;
+    let ntp_addrs = sta_stack.dns_query(NTP_SERVER, DnsQueryType::A).await;
     let ntp_addrs = ntp_addrs.unwrap();
 
     if ntp_addrs.is_empty() {
@@ -63,13 +69,12 @@ pub(crate) async fn sync_time_with_ntp(stack: &'static WifiResources) {
 
     loop {
         let addr: IpAddr = ntp_addrs[0].into();
-        let result =
-            get_time(SocketAddr::from((addr, 123)), &socket, ctx)
-                .await;
+        let result = get_time(SocketAddr::from((addr, 123)), &socket, ctx).await;
 
         match result {
             Ok(time) => {
-                let datetime = NaiveDateTime::from_timestamp(time.sec() as i64, time.sec_fraction()); // TODO: fix this
+                let datetime =
+                    NaiveDateTime::from_timestamp(time.sec() as i64, time.sec_fraction()); // TODO: fix this
                 RTC.set_datetime(datetime).await;
                 info!("Time: {:?}", time);
             }
@@ -80,5 +85,4 @@ pub(crate) async fn sync_time_with_ntp(stack: &'static WifiResources) {
 
         Timer::after(Duration::from_secs(1200)).await;
     }
-
 }

@@ -1,14 +1,20 @@
 use alloc::format;
 use defmt::error;
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, semaphore::{GreedySemaphore, Semaphore}};
+use embassy_sync::{
+    blocking_mutex::raw::CriticalSectionRawMutex,
+    semaphore::{GreedySemaphore, Semaphore},
+};
 use embassy_time::Timer;
 use esp_hal::gpio::{Output, OutputConfig};
-use mainboard::{board::{Motor0Pin, Motor1Pin}, tasks::PowerHandle};
+use mainboard::{
+    board::{Motor0Pin, Motor1Pin},
+    tasks::PowerHandle,
+};
 use mcp794xx::Timelike;
 use rkyv::{rancor::Error, Archive, Deserialize, Serialize};
 
-use crate::{CLOCK_DRIVER, rtc::RTC};
+use crate::{rtc::RTC, CLOCK_DRIVER};
 
 pub(crate) struct ClockDriver {
     semaphore: GreedySemaphore<CriticalSectionRawMutex>,
@@ -18,14 +24,14 @@ pub(crate) struct ClockDriver {
 #[rkyv(compare(PartialEq), derive(Debug))]
 pub(crate) struct ClockDriverState {
     pin: u8,
-    time: Option<i64>
+    time: Option<i64>,
 }
 
 impl Default for ClockDriverState {
     fn default() -> Self {
         Self {
             pin: 0u8,
-            time: None
+            time: None,
         }
     }
 }
@@ -60,9 +66,14 @@ impl ClockDriver {
 
 async fn read_rtc_state() -> ClockDriverState {
     match RTC.read_nonvolatile(0u8, 64u8).await {
-        Ok(data) => rkyv::access::<ArchivedClockDriverState, Error>(data.as_ref()).map(|i| ClockDriverState::from(i)).unwrap_or_default(),
+        Ok(data) => rkyv::access::<ArchivedClockDriverState, Error>(data.as_ref())
+            .map(|i| ClockDriverState::from(i))
+            .unwrap_or_default(),
         Err(e) => {
-            error!("Failed to read the rtc sram memory {}", format!("{:?}", e).as_str());
+            error!(
+                "Failed to read the rtc sram memory {}",
+                format!("{:?}", e).as_str()
+            );
             Default::default()
         }
     }
@@ -72,15 +83,21 @@ async fn write_rtc_state(state: &ClockDriverState) {
     let data = match rkyv::to_bytes::<Error>(state) {
         Ok(v) => v,
         Err(e) => {
-            error!("Failed to serialzie to json, {}", format!("{:?}", e).as_str());
+            error!(
+                "Failed to serialzie to json, {}",
+                format!("{:?}", e).as_str()
+            );
             return;
         }
     };
 
     match RTC.write_nonvolatile(0u8, data.as_ref()).await {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(e) => {
-            error!("Failed to write to rtc sram {}", format!("{:?}", e).as_str());
+            error!(
+                "Failed to write to rtc sram {}",
+                format!("{:?}", e).as_str()
+            );
         }
     }
 }
@@ -125,7 +142,12 @@ async fn clock_task(motor_pin0: Motor0Pin, motor_pin1: Motor1Pin, power: PowerHa
     }
 }
 
-pub fn spawn_clock_task(spawner: &Spawner, motor_pin0: Motor0Pin, motor_pin1: Motor1Pin, power: PowerHandle) {
+pub fn spawn_clock_task(
+    spawner: &Spawner,
+    motor_pin0: Motor0Pin,
+    motor_pin1: Motor1Pin,
+    power: PowerHandle,
+) {
     spawner
         .spawn(clock_task(motor_pin0, motor_pin1, power))
         .expect("Failed to spawn clock task");

@@ -2,9 +2,7 @@ use defmt::info;
 use embassy_net::{Runner, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
-use esp_radio::wifi::{
-    ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent,
-};
+use esp_radio::wifi::{ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent};
 use rand_core::RngCore as _;
 use static_cell::StaticCell;
 
@@ -49,7 +47,7 @@ pub async fn initialize_wifi(
     let mixed_config = ModeConfig::Client(
         ClientConfig::default()
             .with_ssid(WIFI_SSID.into())
-            .with_password(WIFI_PASSWORD.into())
+            .with_password(WIFI_PASSWORD.into()),
     );
     controller.set_config(&mixed_config).unwrap();
 
@@ -59,9 +57,7 @@ pub async fn initialize_wifi(
 
     info!("You can connect to your router and access via WiFi STA IP");
 
-    WifiResources {
-        sta_stack,
-    }
+    WifiResources { sta_stack }
 }
 
 #[embassy_executor::task]

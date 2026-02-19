@@ -1,11 +1,8 @@
-
 use defmt::info;
 use embassy_net::{Runner, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
-use esp_radio::wifi::{
-    ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent
-};
+use esp_radio::wifi::{ClientConfig, ModeConfig, WifiController, WifiDevice, WifiEvent};
 use rand_core::RngCore as _;
 use static_cell::StaticCell;
 
@@ -51,7 +48,7 @@ pub async fn initialize_wifi(
     let station_config = ModeConfig::Client(
         ClientConfig::default()
             .with_ssid(WIFI_SSID.into())
-            .with_password(WIFI_PASSWORD.into())
+            .with_password(WIFI_PASSWORD.into()),
     );
     controller.set_config(&station_config).unwrap();
 
@@ -62,17 +59,14 @@ pub async fn initialize_wifi(
     loop {
         if let Some(config) = sta_stack.config_v4() {
             let address = config.address.address();
-             info!("Got IP: {}", address);
+            info!("Got IP: {}", address);
             break;
         }
         info!("Waiting for IP...");
         Timer::after(Duration::from_millis(500)).await;
-    };
-
-
-    WifiResources {
-        sta_stack,
     }
+
+    WifiResources { sta_stack }
 }
 
 #[embassy_executor::task]
@@ -91,9 +85,7 @@ async fn connection_task(mut controller: WifiController<'static>) {
             match controller.connect_async().await {
                 Ok(_) => {
                     // wait until we're no longer connected
-                    controller
-                        .wait_for_event(WifiEvent::StaDisconnected)
-                        .await;
+                    controller.wait_for_event(WifiEvent::StaDisconnected).await;
                     info!("Station disconnected");
                 }
                 Err(e) => {

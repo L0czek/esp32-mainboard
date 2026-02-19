@@ -1,10 +1,10 @@
 use alloc::vec;
 use alloc::vec::Vec;
+use defmt::info;
 use embedded_hal_bus::i2c::AtomicError;
 use mainboard::{board::acquire_i2c_bus, channel::RequestResponseChannel};
-use mcp794xx::NaiveDateTime;
 use mcp794xx::DateTimeAccess;
-use defmt::info;
+use mcp794xx::NaiveDateTime;
 
 #[derive(Debug)]
 pub(crate) enum RtcRequest {
@@ -13,14 +13,13 @@ pub(crate) enum RtcRequest {
 
     ReadNonvolatileMem {
         addr: u8,
-        size: u8
+        size: u8,
     },
 
     WriteNonvolatileMem {
         addr: u8,
-        data: Vec<u8>
-    }
-    ,
+        data: Vec<u8>,
+    },
     EnableAlarm(mcp794xx::Alarm),
     DisableAlarm(mcp794xx::Alarm),
     SetAlarm {
@@ -28,7 +27,7 @@ pub(crate) enum RtcRequest {
         when: mcp794xx::AlarmDateTime,
         matching: mcp794xx::AlarmMatching,
         polarity: mcp794xx::AlarmOutputPinPolarity,
-    }
+    },
 }
 
 pub(crate) enum RtcResponse {
@@ -37,14 +36,15 @@ pub(crate) enum RtcResponse {
     RtcError(mcp794xx::Error<AtomicError<esp_hal::i2c::master::Error>>),
 
     NonvolatileMem(Vec<u8>),
-    DateTime(NaiveDateTime)
+    DateTime(NaiveDateTime),
 }
 
-pub(crate) static RTC_CHANNEL: RequestResponseChannel<RtcRequest, RtcResponse, 10> = RequestResponseChannel::with_static_channels();
+pub(crate) static RTC_CHANNEL: RequestResponseChannel<RtcRequest, RtcResponse, 10> =
+    RequestResponseChannel::with_static_channels();
 pub(crate) static RTC: RtcClient = RtcClient::new();
 
 pub(crate) struct RtcNonvolatileState {
-    pub last_update: NaiveDateTime
+    pub last_update: NaiveDateTime,
 }
 
 #[derive(Clone, Copy)]
@@ -95,7 +95,10 @@ impl RtcClient {
 
     pub async fn write_nonvolatile(&self, addr: u8, data: &[u8]) -> Result<(), RtcClientError> {
         match RTC_CHANNEL
-            .transact(RtcRequest::WriteNonvolatileMem { addr, data: data.to_vec() })
+            .transact(RtcRequest::WriteNonvolatileMem {
+                addr,
+                data: data.to_vec(),
+            })
             .await
         {
             RtcResponse::Ok => Ok(()),
@@ -154,12 +157,12 @@ pub(crate) async fn rtc_handler() {
             RtcRequest::SetDateTime(datetime) => {
                 let ret = match rtc.set_datetime(&datetime) {
                     Ok(()) => RtcResponse::Ok,
-                    Err(e) => RtcResponse::RtcError(e)
+                    Err(e) => RtcResponse::RtcError(e),
                 };
                 rtc.enable();
 
                 ret
-            },
+            }
 
             RtcRequest::ReadNonvolatileMem { addr, size } => {
                 let mut mem = Vec::with_capacity(size as usize);
@@ -167,44 +170,41 @@ pub(crate) async fn rtc_handler() {
 
                 match rtc.read_sram_data(addr, mem.as_mut_slice()) {
                     Ok(()) => RtcResponse::NonvolatileMem(mem),
-                    Err(e) => RtcResponse::RtcError(e)
+                    Err(e) => RtcResponse::RtcError(e),
                 }
             }
 
             RtcRequest::WriteNonvolatileMem { addr, data } => {
                 match rtc.write_sram_data(addr, data.as_ref()) {
                     Ok(()) => RtcResponse::Ok,
-                    Err(e) => RtcResponse::RtcError(e)
-                }
-            },
-
-            RtcRequest::EnableAlarm(alarm) => {
-                match rtc.enable_alarm(alarm) {
-                    Ok(()) => RtcResponse::Ok,
                     Err(e) => RtcResponse::RtcError(e),
-                }
-            },
-
-            RtcRequest::DisableAlarm(alarm) => {
-                match rtc.disable_alarm(alarm) {
-                    Ok(()) => RtcResponse::Ok,
-                    Err(e) => RtcResponse::RtcError(e),
-                }
-            },
-
-            RtcRequest::SetAlarm { alarm, when, matching, polarity } => {
-                match rtc.set_alarm(alarm, when, matching, polarity) {
-                    Ok(()) => RtcResponse::Ok,
-                    Err(e) => RtcResponse::RtcError(e),
-                }
-            },
-
-            RtcRequest::GetDateTime() => {
-                match rtc.datetime() {
-                    Ok(v) => RtcResponse::DateTime(v),
-                    Err(e) => RtcResponse::RtcError(e)
                 }
             }
+
+            RtcRequest::EnableAlarm(alarm) => match rtc.enable_alarm(alarm) {
+                Ok(()) => RtcResponse::Ok,
+                Err(e) => RtcResponse::RtcError(e),
+            },
+
+            RtcRequest::DisableAlarm(alarm) => match rtc.disable_alarm(alarm) {
+                Ok(()) => RtcResponse::Ok,
+                Err(e) => RtcResponse::RtcError(e),
+            },
+
+            RtcRequest::SetAlarm {
+                alarm,
+                when,
+                matching,
+                polarity,
+            } => match rtc.set_alarm(alarm, when, matching, polarity) {
+                Ok(()) => RtcResponse::Ok,
+                Err(e) => RtcResponse::RtcError(e),
+            },
+
+            RtcRequest::GetDateTime() => match rtc.datetime() {
+                Ok(v) => RtcResponse::DateTime(v),
+                Err(e) => RtcResponse::RtcError(e),
+            },
         };
 
         RTC_CHANNEL.send_response(response).await;

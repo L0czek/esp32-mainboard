@@ -41,8 +41,8 @@ impl PinMode {
 /// Represents the actual state of a pin
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PinState {
-    InLow,      // Pin is reading as low (0V)
-    InHigh,     // Pin is reading as high (VCC)
+    InLow,       // Pin is reading as low (0V)
+    InHigh,      // Pin is reading as high (VCC)
     DrivingLow,  // Pin is being pulled down
     DrivingHigh, // Pin is being pulled up
 
@@ -89,11 +89,16 @@ type CommandResult = ();
 // ============================================================================
 
 /// Channels for sending commands to output tasks
-static DIGITAL_D0_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static DIGITAL_D1_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static DIGITAL_D2_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static DIGITAL_D3_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
-static DIGITAL_D4_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> = RequestResponseChannel::with_static_channels();
+static DIGITAL_D0_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> =
+    RequestResponseChannel::with_static_channels();
+static DIGITAL_D1_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> =
+    RequestResponseChannel::with_static_channels();
+static DIGITAL_D2_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> =
+    RequestResponseChannel::with_static_channels();
+static DIGITAL_D3_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> =
+    RequestResponseChannel::with_static_channels();
+static DIGITAL_D4_CHANNEL: RequestResponseChannel<Command, CommandResult, 4> =
+    RequestResponseChannel::with_static_channels();
 
 /// Watch channels for pin (mode, state) notifications
 static DIGITAL_D0_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
@@ -102,7 +107,8 @@ static DIGITAL_D2_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> 
 static DIGITAL_D3_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
 static DIGITAL_D4_STATE: Watch<CriticalSectionRawMutex, (PinMode, PinState), 4> = Watch::new();
 
-pub type DigitalPinStateReceiver = watch::Receiver<'static, CriticalSectionRawMutex, (PinMode, PinState), 4>;
+pub type DigitalPinStateReceiver =
+    watch::Receiver<'static, CriticalSectionRawMutex, (PinMode, PinState), 4>;
 
 static DIGITAL_IO_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -127,11 +133,46 @@ pub fn spawn_digital_io(
     }
 
     // Spawn tasks for each pin (all start in OpenDrain mode, floating high)
-    spawner.spawn(digital_pin_task(DigitalPinID::D0, d0.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D0 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D1, d1.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D1 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D2, d2.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D2 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D3, d3.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D3 failed");
-    spawner.spawn(digital_pin_task(DigitalPinID::D4, d4.degrade(), PinMode::OpenDrain, true)).expect("spawn digital D4 failed");
+    spawner
+        .spawn(digital_pin_task(
+            DigitalPinID::D0,
+            d0.degrade(),
+            PinMode::OpenDrain,
+            true,
+        ))
+        .expect("spawn digital D0 failed");
+    spawner
+        .spawn(digital_pin_task(
+            DigitalPinID::D1,
+            d1.degrade(),
+            PinMode::OpenDrain,
+            true,
+        ))
+        .expect("spawn digital D1 failed");
+    spawner
+        .spawn(digital_pin_task(
+            DigitalPinID::D2,
+            d2.degrade(),
+            PinMode::OpenDrain,
+            true,
+        ))
+        .expect("spawn digital D2 failed");
+    spawner
+        .spawn(digital_pin_task(
+            DigitalPinID::D3,
+            d3.degrade(),
+            PinMode::OpenDrain,
+            true,
+        ))
+        .expect("spawn digital D3 failed");
+    spawner
+        .spawn(digital_pin_task(
+            DigitalPinID::D4,
+            d4.degrade(),
+            PinMode::OpenDrain,
+            true,
+        ))
+        .expect("spawn digital D4 failed");
 
     DigitalIoHandle { _priv: PhantomData }
 }
@@ -147,8 +188,8 @@ fn pin_state(pin: &Flex<'_>, mode: PinMode) -> PinState {
 
     match (is_high, is_set_high, mode) {
         // Open-drain mode
-        (true, true, PinMode::OpenDrain) => PinState::InHigh,  // Floating, reading high
-        (false, true, PinMode::OpenDrain) => PinState::InLow,  // Floating, reading low
+        (true, true, PinMode::OpenDrain) => PinState::InHigh, // Floating, reading high
+        (false, true, PinMode::OpenDrain) => PinState::InLow, // Floating, reading low
         (false, false, PinMode::OpenDrain) => PinState::DrivingLow,
         (true, false, PinMode::OpenDrain) => PinState::FunckingBad, // Shouldn't happen
 
@@ -166,7 +207,12 @@ fn pin_state(pin: &Flex<'_>, mode: PinMode) -> PinState {
 
 /// Main task that manages a pin
 #[embassy_executor::task(pool_size = 5)]
-async fn digital_pin_task(output_id: DigitalPinID, pin: AnyPin<'static>, initial_mode: PinMode, initial_state: bool) {
+async fn digital_pin_task(
+    output_id: DigitalPinID,
+    pin: AnyPin<'static>,
+    initial_mode: PinMode,
+    initial_state: bool,
+) {
     let (channel, pin_state_watch) = match output_id {
         DigitalPinID::D0 => (&DIGITAL_D0_CHANNEL, &DIGITAL_D0_STATE),
         DigitalPinID::D1 => (&DIGITAL_D1_CHANNEL, &DIGITAL_D1_STATE),
@@ -187,7 +233,8 @@ async fn digital_pin_task(output_id: DigitalPinID, pin: AnyPin<'static>, initial
             PinMode::OpenDrain => DriveMode::OpenDrain,
             PinMode::PushPull => DriveMode::PushPull,
         }),
-    ).into_flex();
+    )
+    .into_flex();
     pin.set_input_enable(true);
 
     let mut current_mode = initial_mode;
@@ -198,29 +245,27 @@ async fn digital_pin_task(output_id: DigitalPinID, pin: AnyPin<'static>, initial
         // Wait for either a command or a pin edge
         match select::select(channel.recv_request(), pin.wait_for_any_edge()).await {
             // Handle command
-            Either::First(command) => {
-                match command {
-                    Command::SetState(state) => {
-                        pin.set_level(state.into());
-                        channel.send_response(()).await;
-                    },
-                    Command::SetMode(mode) => {
-                        current_mode = mode;
-                        pin.apply_output_config(
-                            &OutputConfig::default().with_drive_mode(match current_mode {
-                                PinMode::OpenDrain => DriveMode::OpenDrain,
-                                PinMode::PushPull => DriveMode::PushPull,
-                            })
-                        );
-                        channel.send_response(()).await;
-                    },
+            Either::First(command) => match command {
+                Command::SetState(state) => {
+                    pin.set_level(state.into());
+                    channel.send_response(()).await;
+                }
+                Command::SetMode(mode) => {
+                    current_mode = mode;
+                    pin.apply_output_config(&OutputConfig::default().with_drive_mode(
+                        match current_mode {
+                            PinMode::OpenDrain => DriveMode::OpenDrain,
+                            PinMode::PushPull => DriveMode::PushPull,
+                        },
+                    ));
+                    channel.send_response(()).await;
                 }
             },
 
             // Handle pin edge
             Either::Second(_) => {
                 // do nothing, just update the state
-            },
+            }
         }
     }
 }
@@ -268,10 +313,7 @@ impl DigitalIoHandle {
     }
 
     /// Get a receiver that will be notified when the specified pin's state or mode changes
-    pub fn watch(
-        &self,
-        id: DigitalPinID,
-    ) -> Option<DigitalPinStateReceiver> {
+    pub fn watch(&self, id: DigitalPinID) -> Option<DigitalPinStateReceiver> {
         match id {
             DigitalPinID::D0 => DIGITAL_D0_STATE.receiver(),
             DigitalPinID::D1 => DIGITAL_D1_STATE.receiver(),

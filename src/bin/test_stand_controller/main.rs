@@ -8,20 +8,22 @@
 )]
 
 mod config;
-mod wifi;
 mod mqtt;
+mod wifi;
 
+use crate::wifi::WifiResources;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
-use mainboard::tasks::{spawn_ext_interrupt_task, spawn_power_controller, PowerStateReceiver, PowerResponse};
-use crate::wifi::WifiResources;
+use mainboard::tasks::{
+    spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
+};
 
 use defmt::info;
 use embassy_executor::Spawner;
 use esp_hal::clock::CpuClock;
-use esp_hal::timer::timg::TimerGroup;
 use esp_hal::rtc_cntl::Rtc;
+use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
@@ -122,7 +124,6 @@ async fn main(spawner: Spawner) {
     let mut rtc = Rtc::new(peripherals.LPWR);
     rtc.sleep_deep(&[]);
 }
-
 
 #[embassy_executor::task]
 async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {

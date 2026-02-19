@@ -9,18 +9,16 @@ use picoserve::{
 use serde::{Deserialize, Serialize};
 use serde_json;
 extern crate alloc;
+use crate::digital_io::DigitalIoHandle;
+use crate::digital_io::PinMode;
+use crate::uart::UartHandle;
+use crate::AdcHandle;
+use crate::DigitalPinID;
 use alloc::string::String;
 use alloc::vec::Vec;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use mainboard::power::PowerControllerStats;
-use mainboard::tasks::{
-    PowerHandle, PowerResponse,
-};
-use crate::uart::UartHandle;
-use crate::digital_io::PinMode;
-use crate::digital_io::DigitalIoHandle;
-use crate::DigitalPinID;
-use crate::AdcHandle;
+use mainboard::tasks::{PowerHandle, PowerResponse};
 
 use crate::wifi::WifiResources;
 use bq24296m;

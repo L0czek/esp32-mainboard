@@ -104,9 +104,12 @@ pub type I2cType = AtomicDevice<'static, I2c<'static, Blocking>>;
 static I2C_BUS: OnceCell<AtomicCell<I2c<'static, Blocking>>> = OnceCell::new();
 
 pub fn init_i2c_bus(i2c0: I2C0<'static>, sda: SdaPin, scl: SclPin) -> Result<(), ConfigError> {
-    let bus = I2c::new(i2c0, esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(400)))?
-        .with_sda(sda)
-        .with_scl(scl);
+    let bus = I2c::new(
+        i2c0,
+        esp_hal::i2c::master::Config::default().with_frequency(Rate::from_khz(400)),
+    )?
+    .with_sda(sda)
+    .with_scl(scl);
 
     let _ = I2C_BUS.set(AtomicCell::new(bus));
 
@@ -119,4 +122,3 @@ pub fn acquire_i2c_bus() -> AtomicDevice<'static, I2c<'static, Blocking>> {
         None => panic!("I2C bus accessed before initialization"),
     }
 }
-
