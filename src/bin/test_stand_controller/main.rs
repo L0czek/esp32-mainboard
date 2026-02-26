@@ -10,6 +10,7 @@
 mod config;
 mod mqtt;
 mod sensor_collection;
+mod temperature_collection;
 mod wifi;
 
 use crate::wifi::WifiResources;
@@ -123,6 +124,20 @@ async fn main(spawner: Spawner) {
         ))
         .expect("Failed to spawn sensor_collection_task");
     info!("Sensor collection task spawned");
+
+    let temp_io = temperature_collection::TemperatureCollectionIo {
+        uart: peripherals.UART0,
+        tx_pin: board.U0Tx,
+        rx_pin: board.U0Rx,
+        dir_pin: board.D0,
+    };
+
+    spawner
+        .spawn(temperature_collection::temperature_collection_task(
+            temp_io,
+        ))
+        .expect("Failed to spawn temperature_collection_task");
+    info!("Temperature collection task spawned");
 
     SHUTDOWN_SIGNAL.wait().await;
     info!("Shutdown signal received");

@@ -107,24 +107,19 @@ impl Tmp107 {
 
         let mut count: u8 = 0;
         let mut response = [0u8; 1];
-        loop {
-            match with_timeout(
-                Duration::from_millis(ADDR_DISCOVER_TIMEOUT_MS),
-                self.rx.read_async(&mut response),
-            )
-            .await
-            {
-                Ok(Ok(1)) => {
-                    count += 1;
-                    info!(
-                        "TMP107 sensor {} discovered (byte: {:#04x})",
-                        count, response[0]
-                    );
-                    if count as usize >= MAX_SENSORS {
-                        break;
-                    }
-                }
-                _ => break,
+        while let Ok(Ok(1)) = with_timeout(
+            Duration::from_millis(ADDR_DISCOVER_TIMEOUT_MS),
+            self.rx.read_async(&mut response),
+        )
+        .await
+        {
+            count += 1;
+            info!(
+                "TMP107 sensor {} discovered (byte: {:#04x})",
+                count, response[0]
+            );
+            if count as usize >= MAX_SENSORS {
+                break;
             }
         }
 
@@ -232,6 +227,7 @@ impl Tmp107 {
         Ok(count)
     }
 
+    #[allow(dead_code)]
     async fn individual_write(
         &mut self,
         address: u8,
@@ -250,6 +246,7 @@ impl Tmp107 {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn global_write(
         &mut self,
         max_address: u8,
