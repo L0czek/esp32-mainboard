@@ -9,7 +9,7 @@ published as telemetry.
 
 ## MCPWM Configuration
 
-- **Clock:** 32 MHz peripheral clock (prescaled from PLL_F160M). `timer_clock_with_frequency`
+- **Clock:** PLL_F160M (160 MHz) peripheral clock. `timer_clock_with_frequency`
   computes prescaler and period for 50 Hz output.
 - **Peripheral:** MCPWM0, operator0, timer0, pin A on GPIO22 (D1).
 - **Mode:** Up-counting, active high.

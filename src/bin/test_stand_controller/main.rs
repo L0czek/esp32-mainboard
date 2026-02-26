@@ -126,10 +126,7 @@ async fn main(spawner: Spawner) {
     info!("Sensor collection task spawned");
 
     spawner
-        .spawn(servo::servo_controller_task(
-            peripherals.MCPWM0,
-            board.D1,
-        ))
+        .spawn(servo::servo_controller_task(peripherals.MCPWM0, board.D1))
         .expect("Failed to spawn servo_controller_task");
     info!("Servo controller task spawned");
 

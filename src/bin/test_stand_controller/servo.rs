@@ -11,8 +11,8 @@ use esp_hal::time::Rate;
 use mainboard::board::D1Pin;
 
 use crate::config::{
-    SERVO_CLOSED_DEGREES, SERVO_FULL_RANGE_MS, SERVO_MAX_PULSE_TICKS,
-    SERVO_MIN_PULSE_TICKS, SERVO_OPEN_DEGREES,
+    SERVO_CLOSED_DEGREES, SERVO_FULL_RANGE_MS, SERVO_MAX_PULSE_TICKS, SERVO_MIN_PULSE_TICKS,
+    SERVO_OPEN_DEGREES,
 };
 use crate::mqtt::commands::servo::ServoCommand;
 use crate::mqtt::queue;
@@ -21,8 +21,7 @@ use crate::mqtt::sensors::status::ServoStatus;
 
 const TICK_INTERVAL_MS: u64 = 20;
 
-static SERVO_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, ServoCommand, 4> =
-    Channel::new();
+static SERVO_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, ServoCommand, 4> = Channel::new();
 
 pub fn send_servo_command(command: ServoCommand) {
     if SERVO_COMMAND_CHANNEL.try_send(command).is_err() {
@@ -71,10 +70,8 @@ fn publish_servo_position(ticks: u16) {
 
 #[embassy_executor::task]
 pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
-    let clock_cfg = PeripheralClockConfig::with_frequency(
-        Rate::from_mhz(32),
-    )
-    .expect("Failed to configure MCPWM clock");
+    let clock_cfg = PeripheralClockConfig::with_frequency(Rate::from_mhz(160))
+        .expect("Failed to configure MCPWM clock");
 
     let mut mcpwm = McPwm::new(mcpwm, clock_cfg);
     mcpwm.operator0.set_timer(&mcpwm.timer0);
@@ -84,11 +81,7 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
         .with_pin_a(pin, PwmPinConfig::UP_ACTIVE_HIGH);
 
     let timer_clock_cfg = clock_cfg
-        .timer_clock_with_frequency(
-            19_999,
-            PwmWorkingMode::Increase,
-            Rate::from_hz(50),
-        )
+        .timer_clock_with_frequency(19_999, PwmWorkingMode::Increase, Rate::from_hz(50))
         .expect("Failed to configure MCPWM timer");
     mcpwm.timer0.start(timer_clock_cfg);
 
@@ -139,8 +132,7 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
                 Either::First(new_command) => {
                     let new_target = target_ticks_for_command(new_command);
                     if new_target == current_ticks {
-                        let (_, new_arrived) =
-                            status_for_command(new_command);
+                        let (_, new_arrived) = status_for_command(new_command);
                         publish_servo_status(new_arrived);
                         reached = true;
                         continue;
@@ -160,15 +152,10 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
                     } else {
                         let progress = step as i32;
                         let total = total_steps as i32;
-                        let delta = (target_ticks as i32
-                            - start_ticks as i32)
-                            * progress
-                            / total;
+                        let delta = (target_ticks as i32 - start_ticks as i32) * progress / total;
                         let raw = start_ticks as i32 + delta;
-                        let clamped = raw.clamp(
-                            SERVO_MIN_PULSE_TICKS as i32,
-                            SERVO_MAX_PULSE_TICKS as i32,
-                        );
+                        let clamped =
+                            raw.clamp(SERVO_MIN_PULSE_TICKS as i32, SERVO_MAX_PULSE_TICKS as i32);
                         current_ticks = clamped as u16;
                     }
                     pwm_pin.set_timestamp(current_ticks);
