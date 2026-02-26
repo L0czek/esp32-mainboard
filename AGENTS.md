@@ -12,7 +12,8 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/bin/test_stand_controller/mqtt/commands/`: command decoding + handler traits + mock handlers.
 - `src/bin/test_stand_controller/mqtt/commands/shutdown.rs`: `SHUTDOWN` command decoder.
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
-- `src/bin/test_stand_controller/config.rs`: compile-time env configuration.
+- `src/bin/test_stand_controller/servo.rs`: servo controller task (MCPWM PWM, command channel, linear interpolation).
+- `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions).
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
 
 ## Build, Test, and Development Commands
@@ -36,6 +37,14 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - binary payload encoding for fast/slow ADC, armed digital stream, temperature streams, and servo sensor.
 - command subscribe/dispatch on `cmd/state`, `cmd/servo`, and `cmd/shutdown` (`SHUTDOWN` payload)
   with trait-based handlers.
+- Servo controller task drives a pulse-width servo on GPIO22 (D1) via MCPWM0:
+  - 160 MHz peripheral clock, 50 Hz PWM (period 19999), up-counting active high.
+  - Receives `ServoCommand` (Open/Close) from MQTT handler via `Channel<CriticalSectionRawMutex, ServoCommand, 4>`.
+  - Linear interpolation at 20ms tick intervals; travel time proportional to distance.
+  - Publishes `ServoStatus` (OPENING/CLOSING/OPEN/CLOSED) on transitions via outbound queue.
+  - Publishes `ServoSensorPacket` (current PWM ticks) on each interpolation step.
+  - Config constants: `SERVO_MIN_PULSE_TICKS` (0°), `SERVO_MAX_PULSE_TICKS` (180°), `SERVO_OPEN_DEGREES`, `SERVO_CLOSED_DEGREES`, `SERVO_FULL_RANGE_MS`.
+  - Boots to closed position. Mid-movement commands restart interpolation from current position.
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
 
