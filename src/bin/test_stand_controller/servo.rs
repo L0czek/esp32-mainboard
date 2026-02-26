@@ -70,7 +70,7 @@ fn publish_servo_position(ticks: u16) {
 }
 
 #[embassy_executor::task]
-pub async fn servo_controller_task(mcpwm: MCPWM0, pin: D1Pin) {
+pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
     let clock_cfg = PeripheralClockConfig::with_frequency(
         Rate::from_mhz(32),
     )
