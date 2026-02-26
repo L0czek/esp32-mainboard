@@ -6,6 +6,7 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
+- `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (10Hz polling via global read, MQTT publish).
 - `src/bin/test_stand_controller/mqtt/client.rs`: DNS, TCP, MQTT session, command subscribe, event/select loop.
 - `src/bin/test_stand_controller/mqtt/queue.rs`: global outbound queue and public publish API.
 - `src/bin/test_stand_controller/mqtt/sensors/`: binary sensor/status payload types + encoders.
@@ -14,6 +15,7 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
 - `src/bin/test_stand_controller/config.rs`: compile-time env configuration.
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
+- `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
 
 ## Build, Test, and Development Commands
 - `WIFI_SSID=... WIFI_PASSWORD=... MQTT_HOST=... cargo check --bin test_stand_controller`: fast compile check.
@@ -38,6 +40,11 @@ Current work scope is `src/bin/test_stand_controller/` only.
   with trait-based handlers.
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
+- TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
+  10Hz global-read polling of all discovered sensors, raw 16-bit readings published
+  to `sensor/temp/{id}` MQTT topics via existing TempPacket infrastructure.
+  Connected via UART0 (GPIO16 TX, GPIO17 RX) with D0 (GPIO23) as half-duplex
+  direction control.
 
 ## Coding Style & Naming Conventions
 Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiomatic Rust naming:
