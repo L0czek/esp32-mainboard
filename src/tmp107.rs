@@ -95,12 +95,17 @@ impl Tmp107 {
 
         let mut count: u8 = 0;
         let mut response = [0u8; 1];
-        while let Ok(Ok(())) = with_timeout(
-            Duration::from_millis(ADDR_DISCOVER_TIMEOUT_MS),
-            self.rx.read_exact_async(&mut response),
-        )
-        .await
-        {
+        loop {
+            match with_timeout(
+                Duration::from_millis(ADDR_DISCOVER_TIMEOUT_MS),
+                self.rx.read_exact_async(&mut response),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Err(_) => break, // Timeout: no more sensors
+                Ok(Err(_)) => return Err(Tmp107Error::UartRead),
+            }
             count += 1;
             info!(
                 "TMP107 sensor {} discovered (byte: {:#04x})",
