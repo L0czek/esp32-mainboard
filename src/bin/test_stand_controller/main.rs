@@ -10,6 +10,7 @@
 mod config;
 mod mqtt;
 mod sensor_collection;
+mod servo;
 mod wifi;
 
 use crate::wifi::WifiResources;
@@ -123,6 +124,14 @@ async fn main(spawner: Spawner) {
         ))
         .expect("Failed to spawn sensor_collection_task");
     info!("Sensor collection task spawned");
+
+    spawner
+        .spawn(servo::servo_controller_task(
+            peripherals.MCPWM0,
+            board.D1,
+        ))
+        .expect("Failed to spawn servo_controller_task");
+    info!("Servo controller task spawned");
 
     SHUTDOWN_SIGNAL.wait().await;
     info!("Shutdown signal received");
