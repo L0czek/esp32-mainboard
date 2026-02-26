@@ -118,6 +118,14 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
         let total_steps = total_time_ms / TICK_INTERVAL_MS;
         let start_ticks = current_ticks;
 
+        if total_steps == 0 {
+            current_ticks = target_ticks;
+            pwm_pin.set_timestamp(current_ticks);
+            publish_servo_position(current_ticks);
+            publish_servo_status(arrived_status);
+            continue;
+        }
+
         let mut step: u64 = 0;
         let mut reached = false;
 
@@ -156,8 +164,12 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
                             - start_ticks as i32)
                             * progress
                             / total;
-                        current_ticks =
-                            (start_ticks as i32 + delta) as u16;
+                        let raw = start_ticks as i32 + delta;
+                        let clamped = raw.clamp(
+                            SERVO_MIN_PULSE_TICKS as i32,
+                            SERVO_MAX_PULSE_TICKS as i32,
+                        );
+                        current_ticks = clamped as u16;
                     }
                     pwm_pin.set_timestamp(current_ticks);
                     publish_servo_position(current_ticks);
