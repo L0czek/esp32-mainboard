@@ -129,6 +129,10 @@ pub fn publish_servo_status(status: ServoStatus) -> Result<(), PublishError> {
     enqueue(OutboundMessage::ServoStatus(status))
 }
 
+pub fn publish_servo_sensor(packet: ServoSensorPacket) -> Result<(), PublishError> {
+    enqueue(OutboundMessage::ServoSensor(packet))
+}
+
 pub fn publish_command_status(status: CommandStatusPacket) -> Result<(), PublishError> {
     enqueue(OutboundMessage::CommandStatus(status))
 }
