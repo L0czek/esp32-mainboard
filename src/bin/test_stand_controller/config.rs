@@ -8,3 +8,4 @@ pub static MQTT_CLIENT_ID: &str = match option_env!("MQTT_CLIENT_ID") {
     Some(id) => id,
     None => "esp32-test-stand",
 };
+pub const TEMP_COLLECTION_INTERVAL_MS: u64 = 100;
