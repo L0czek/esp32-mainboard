@@ -96,6 +96,7 @@ impl ServoCommandHandler for AppCommandHandlers {
             ServoCommand::Open => info!("MQTT command: OPEN"),
             ServoCommand::Close => info!("MQTT command: CLOSE"),
         }
+        crate::servo::send_servo_command(command);
     }
 }
 
