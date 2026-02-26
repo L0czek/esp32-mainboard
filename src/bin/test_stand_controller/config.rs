@@ -8,3 +8,14 @@ pub static MQTT_CLIENT_ID: &str = match option_env!("MQTT_CLIENT_ID") {
     Some(id) => id,
     None => "esp32-test-stand",
 };
+
+// Servo pulse width range (MCPWM ticks mapping physical 0-180 degrees)
+pub const SERVO_MIN_PULSE_TICKS: u16 = 500;
+pub const SERVO_MAX_PULSE_TICKS: u16 = 2500;
+
+// Operational positions (degrees within the 0-180 range)
+pub const SERVO_OPEN_DEGREES: u16 = 90;
+pub const SERVO_CLOSED_DEGREES: u16 = 0;
+
+// Time for full 0-180 degree travel
+pub const SERVO_FULL_RANGE_MS: u64 = 5000;
