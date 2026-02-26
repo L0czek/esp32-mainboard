@@ -95,9 +95,9 @@ impl Tmp107 {
 
         let mut count: u8 = 0;
         let mut response = [0u8; 1];
-        while let Ok(Ok(1)) = with_timeout(
+        while let Ok(Ok(())) = with_timeout(
             Duration::from_millis(ADDR_DISCOVER_TIMEOUT_MS),
-            self.rx.read_async(&mut response),
+            self.rx.read_exact_async(&mut response),
         )
         .await
         {
@@ -172,21 +172,13 @@ impl Tmp107 {
         &mut self,
         buf: &mut [u8],
     ) -> Result<(), Tmp107Error> {
-        let mut offset = 0;
-        while offset < buf.len() {
-            let n = with_timeout(
-                Duration::from_millis(READ_TIMEOUT_MS),
-                self.rx.read_async(&mut buf[offset..]),
-            )
-            .await
-            .map_err(|_| Tmp107Error::Timeout)?
-            .map_err(|_| Tmp107Error::UartRead)?;
-
-            if n == 0 {
-                return Err(Tmp107Error::UartRead);
-            }
-            offset += n;
-        }
+        with_timeout(
+            Duration::from_millis(READ_TIMEOUT_MS),
+            self.rx.read_exact_async(buf),
+        )
+        .await
+        .map_err(|_| Tmp107Error::Timeout)?
+        .map_err(|_| Tmp107Error::UartRead)?;
         Ok(())
     }
 
