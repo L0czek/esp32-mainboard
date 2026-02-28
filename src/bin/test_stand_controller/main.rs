@@ -10,6 +10,7 @@
 mod config;
 mod mqtt;
 mod sensor_collection;
+mod servo;
 mod temperature_collection;
 mod wifi;
 
@@ -136,6 +137,11 @@ async fn main(spawner: Spawner) {
         .spawn(temperature_collection::temperature_collection_task(temp_io))
         .expect("Failed to spawn temperature_collection_task");
     info!("Temperature collection task spawned");
+
+    spawner
+        .spawn(servo::servo_controller_task(peripherals.MCPWM0, board.D1))
+        .expect("Failed to spawn servo_controller_task");
+    info!("Servo controller task spawned");
 
     SHUTDOWN_SIGNAL.wait().await;
     info!("Shutdown signal received");
