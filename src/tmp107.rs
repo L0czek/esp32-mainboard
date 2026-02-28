@@ -110,7 +110,7 @@ impl Tmp107 {
                 "TMP107 sensor {} discovered (byte: {:#04x}, address: {})",
                 count,
                 response[0],
-                response[0] & 0b00011111
+                response[0] >> 3
             );
             if count as usize >= MAX_SENSORS {
                 break;
