@@ -29,6 +29,8 @@ use crate::server::ShutdownHandle;
 use crate::uart::spawn_uart_tasks;
 use defmt::info;
 use embassy_executor::Spawner;
+use esp_hal::analog::adc::Attenuation;
+use esp_hal::efuse::{AdcCalibUnit, Efuse};
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
@@ -69,6 +71,8 @@ async fn main(spawner: Spawner) {
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
     info!("Embassy initialized!");
+
+    dump_adc_efuse_calibration();
 
     let board = create_board!(peripherals);
 
@@ -203,6 +207,38 @@ async fn main(spawner: Spawner) {
     info!("Entering deep sleep (shutdown)");
     let mut rtc = Rtc::new(peripherals.LPWR);
     rtc.sleep_deep(&[]);
+}
+
+fn dump_adc_efuse_calibration() {
+    let (blk_major, blk_minor) = Efuse::block_version();
+    info!(
+        "Efuse: chip v{}.{}, block v{}.{}, rtc_calib v{}",
+        Efuse::major_chip_version(),
+        Efuse::minor_chip_version(),
+        blk_major,
+        blk_minor,
+        Efuse::rtc_calib_version(),
+    );
+
+    let attenuations = [
+        (Attenuation::_0dB, "0dB"),
+        (Attenuation::_2p5dB, "2.5dB"),
+        (Attenuation::_6dB, "6dB"),
+        (Attenuation::_11dB, "11dB"),
+    ];
+
+    for (atten, name) in attenuations {
+        let init_code =
+            Efuse::rtc_calib_init_code(AdcCalibUnit::ADC1, atten);
+        let cal_code =
+            Efuse::rtc_calib_cal_code(AdcCalibUnit::ADC1, atten);
+        let cal_mv =
+            Efuse::rtc_calib_cal_mv(AdcCalibUnit::ADC1, atten);
+        info!(
+            "ADC1 {}: init_code={}, cal_code={}, cal_mv={}",
+            name, init_code, cal_code, cal_mv,
+        );
+    }
 }
 
 #[embassy_executor::task]
