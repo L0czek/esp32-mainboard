@@ -18,8 +18,8 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
 
 ## Build, Test, and Development Commands
-- `WIFI_SSID=... WIFI_PASSWORD=... MQTT_HOST=... cargo check --bin test_stand_controller`: fast compile check.
-- `WIFI_SSID=... WIFI_PASSWORD=... MQTT_HOST=... cargo build --release --bin test_stand_controller`: optimized firmware build.
+- `cargo check --bin test_stand_controller`: fast compile check with auto-loaded compile-time env.
+- `cargo build --release --bin test_stand_controller`: optimized firmware build with auto-loaded compile-time env.
 - `cargo fmt --all`: format code.
 - `cargo clippy --bin test_stand_controller -- -D warnings`: lint this binary strictly.
 - `cargo espflash --release --bin test_stand_controller /dev/ttyUSB0`: flash device (update serial path).
@@ -39,6 +39,7 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - command subscribe/dispatch on `cmd/state`, `cmd/servo`, and `cmd/shutdown` (`SHUTDOWN` payload)
   with trait-based handlers.
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
+- `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
   10Hz global-read polling of all discovered sensors, raw 16-bit readings published

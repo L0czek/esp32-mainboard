@@ -1,8 +1,36 @@
 fn main() {
     linker_be_nice();
+    load_dotenv();
     println!("cargo:rustc-link-arg=-Tdefmt.x");
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
+}
+
+fn load_dotenv() {
+    println!("cargo:rerun-if-changed=.env");
+
+    let path = std::path::Path::new(".env");
+    if !path.exists() {
+        return;
+    }
+
+    let env_file = match dotenvy::from_path_iter(path) {
+        Ok(env_file) => env_file,
+        Err(error) => panic!("failed to read {}: {error}", path.display()),
+    };
+
+    for entry in env_file {
+        let (key, value) = match entry {
+            Ok(entry) => entry,
+            Err(error) => panic!("failed to parse {}: {error}", path.display()),
+        };
+
+        if std::env::var_os(&key).is_some() {
+            continue;
+        }
+
+        println!("cargo:rustc-env={key}={value}");
+    }
 }
 
 fn linker_be_nice() {

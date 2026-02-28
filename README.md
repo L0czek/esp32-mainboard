@@ -37,8 +37,11 @@ cargo build --release --bin empty
 To build the `test_stand_controller` binary:
 
 ```sh
-WIFI_SSID=... WIFI_PASSWORD=... MQTT_HOST=... cargo build --release --bin test_stand_controller
+cp .env.example .env
+cargo build --release --bin test_stand_controller
 ```
+
+`build.rs` auto-loads `.env` at compile time for any `env!` config values.
 
 ## Flashing / Running
 

@@ -29,11 +29,11 @@ use crate::server::ShutdownHandle;
 use crate::uart::spawn_uart_tasks;
 use defmt::info;
 use embassy_executor::Spawner;
-use esp_hal::analog::adc::Attenuation;
-use esp_hal::efuse::{AdcCalibUnit, Efuse};
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
+use esp_hal::analog::adc::Attenuation;
+use esp_hal::efuse::{AdcCalibUnit, Efuse};
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{clock::CpuClock, rtc_cntl::Rtc};
 use panic_rtt_target as _;
@@ -228,12 +228,9 @@ fn dump_adc_efuse_calibration() {
     ];
 
     for (atten, name) in attenuations {
-        let init_code =
-            Efuse::rtc_calib_init_code(AdcCalibUnit::ADC1, atten);
-        let cal_code =
-            Efuse::rtc_calib_cal_code(AdcCalibUnit::ADC1, atten);
-        let cal_mv =
-            Efuse::rtc_calib_cal_mv(AdcCalibUnit::ADC1, atten);
+        let init_code = Efuse::rtc_calib_init_code(AdcCalibUnit::ADC1, atten);
+        let cal_code = Efuse::rtc_calib_cal_code(AdcCalibUnit::ADC1, atten);
+        let cal_mv = Efuse::rtc_calib_cal_mv(AdcCalibUnit::ADC1, atten);
         info!(
             "ADC1 {}: init_code={}, cal_code={}, cal_mv={}",
             name, init_code, cal_code, cal_mv,

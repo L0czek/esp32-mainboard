@@ -93,6 +93,9 @@ mcp794xx = "0.4.0"
 rkyv = { version = "*", default-features = false, features = ["bytecheck", "alloc"] }
 rust-mqtt = { version = "0.4.1", default-features = false, features = ["bump", "defmt", "v5"] }
 
+[build-dependencies]
+dotenvy = "=0.15.7"
+
 [patch.crates-io]
 esp-alloc = { git = "https://github.com/cytadela8/esp-hal", branch = "rs485-it-rocket" }
 esp-bootloader-esp-idf = { git = "https://github.com/cytadela8/esp-hal", branch = "rs485-it-rocket" }
