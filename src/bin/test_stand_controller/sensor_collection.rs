@@ -1,6 +1,8 @@
 use defmt::warn;
 use embassy_time::{Instant, Timer};
-use esp_hal::analog::adc::{Adc, AdcChannel, AdcConfig, AdcPin, Attenuation};
+use esp_hal::analog::adc::{
+    Adc, AdcCalBasic, AdcCalScheme, AdcChannel, AdcConfig, AdcPin, Attenuation,
+};
 use esp_hal::peripherals::ADC1;
 use esp_hal::Blocking;
 
@@ -24,26 +26,54 @@ pub struct SensorCollectionIo {
 
 struct SensorCollectionState {
     adc: Adc<'static, ADC1<'static>, Blocking>,
-    tensometer: AdcPin<A0Pin, ADC1<'static>>,
-    pressure_tank: AdcPin<A1Pin, ADC1<'static>>,
-    pressure_combustion: AdcPin<A2Pin, ADC1<'static>>,
-    starter_sense: AdcPin<A3Pin, ADC1<'static>>,
-    battery_stand: AdcPin<A4Pin, ADC1<'static>>,
-    battery_computer: AdcPin<BatVolPin, ADC1<'static>>,
-    boost_voltage: AdcPin<BoostVolPin, ADC1<'static>>,
+    tensometer: AdcPin<A0Pin, ADC1<'static>, AdcCalBasic<ADC1<'static>>>,
+    pressure_tank: AdcPin<A1Pin, ADC1<'static>, AdcCalBasic<ADC1<'static>>>,
+    pressure_combustion: AdcPin<A2Pin, ADC1<'static>, AdcCalBasic<ADC1<'static>>>,
+    starter_sense: AdcPin<A3Pin, ADC1<'static>, AdcCalBasic<ADC1<'static>>>,
+    battery_stand: AdcPin<A4Pin, ADC1<'static>, AdcCalBasic<ADC1<'static>>>,
+    battery_computer: AdcPin<BatVolPin, ADC1<'static>, AdcCalBasic<ADC1<'static>>>,
+    boost_voltage: AdcPin<BoostVolPin, ADC1<'static>, AdcCalBasic<ADC1<'static>>>,
 }
 
 impl SensorCollectionState {
     fn new(io: SensorCollectionIo) -> Self {
         let mut config = AdcConfig::new();
 
-        let tensometer = config.enable_pin(io.tensometer, Attenuation::_0dB);
-        let pressure_tank = config.enable_pin(io.pressure_tank, Attenuation::_0dB);
-        let pressure_combustion = config.enable_pin(io.pressure_combustion, Attenuation::_0dB);
-        let starter_sense = config.enable_pin(io.starter_sense, Attenuation::_0dB);
-        let battery_stand = config.enable_pin(io.battery_stand, Attenuation::_0dB);
-        let battery_computer = config.enable_pin(io.battery_computer, Attenuation::_0dB);
-        let boost_voltage = config.enable_pin(io.boost_voltage, Attenuation::_0dB);
+        let tensometer =
+            config.enable_pin_with_cal::<A0Pin, AdcCalBasic<ADC1<'static>>>(
+                io.tensometer,
+                Attenuation::_0dB,
+            );
+        let pressure_tank =
+            config.enable_pin_with_cal::<A1Pin, AdcCalBasic<ADC1<'static>>>(
+                io.pressure_tank,
+                Attenuation::_0dB,
+            );
+        let pressure_combustion =
+            config.enable_pin_with_cal::<A2Pin, AdcCalBasic<ADC1<'static>>>(
+                io.pressure_combustion,
+                Attenuation::_0dB,
+            );
+        let starter_sense =
+            config.enable_pin_with_cal::<A3Pin, AdcCalBasic<ADC1<'static>>>(
+                io.starter_sense,
+                Attenuation::_0dB,
+            );
+        let battery_stand =
+            config.enable_pin_with_cal::<A4Pin, AdcCalBasic<ADC1<'static>>>(
+                io.battery_stand,
+                Attenuation::_0dB,
+            );
+        let battery_computer =
+            config.enable_pin_with_cal::<BatVolPin, AdcCalBasic<ADC1<'static>>>(
+                io.battery_computer,
+                Attenuation::_0dB,
+            );
+        let boost_voltage =
+            config.enable_pin_with_cal::<BoostVolPin, AdcCalBasic<ADC1<'static>>>(
+                io.boost_voltage,
+                Attenuation::_0dB,
+            );
 
         let adc = Adc::new(io.adc, config);
 
@@ -167,12 +197,13 @@ fn collect_and_publish_slow(state: &mut SensorCollectionState) {
     }
 }
 
-fn read_adc_raw<PIN>(
+fn read_adc_raw<PIN, CS>(
     adc: &mut Adc<'static, ADC1<'static>, Blocking>,
-    pin: &mut AdcPin<PIN, ADC1<'static>>,
+    pin: &mut AdcPin<PIN, ADC1<'static>, CS>,
 ) -> u16
 where
     PIN: AdcChannel,
+    CS: AdcCalScheme<ADC1<'static>>,
 {
     nb::block!(adc.read_oneshot(pin)).expect("ADC oneshot read failed")
 }
