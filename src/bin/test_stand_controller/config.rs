@@ -16,9 +16,9 @@ pub const ONESHOT_CONVERSION_MS: u64 = 20;
 pub const SERVO_MIN_PULSE_TICKS: u16 = 500;
 pub const SERVO_MAX_PULSE_TICKS: u16 = 2500;
 
-// Operational positions (degrees within the 0-180 range)
-pub const SERVO_OPEN_DEGREES: u16 = 90;
-pub const SERVO_CLOSED_DEGREES: u16 = 0;
+// Operational positions (degrees within the 0-1800 range)
+pub const SERVO_OPEN_DEGREES: u16 = 975;
+pub const SERVO_CLOSED_DEGREES: u16 = 1800;
 
 // Time for full 0-180 degree travel
 pub const SERVO_FULL_RANGE_MS: u64 = 5000;

@@ -35,7 +35,7 @@ pub fn send_servo_command(command: ServoCommand) {
 
 fn degrees_to_ticks(degrees: u16) -> u16 {
     let range = SERVO_MAX_PULSE_TICKS - SERVO_MIN_PULSE_TICKS;
-    SERVO_MIN_PULSE_TICKS + ((degrees as u32 * range as u32) / 180) as u16
+    SERVO_MIN_PULSE_TICKS + ((degrees as u32 * range as u32) / 1800) as u16
 }
 
 fn travel_time_ms(from_ticks: u16, to_ticks: u16) -> u64 {
