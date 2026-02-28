@@ -7,6 +7,7 @@
     holding buffers for the duration of a data transfer."
 )]
 
+mod armed;
 mod config;
 mod mqtt;
 mod sensor_collection;
@@ -142,6 +143,16 @@ async fn main(spawner: Spawner) {
         .spawn(servo::servo_controller_task(peripherals.MCPWM0, board.D1))
         .expect("Failed to spawn servo_controller_task");
     info!("Servo controller task spawned");
+
+    let armed_pin = esp_hal::gpio::Input::new(
+        board.D2,
+        esp_hal::gpio::InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
+    );
+    armed::init_armed_state(&armed_pin);
+    spawner
+        .spawn(armed::armed_monitor_task(armed_pin))
+        .expect("Failed to spawn armed_monitor_task");
+    info!("Armed monitor task spawned");
 
     SHUTDOWN_SIGNAL.wait().await;
     info!("Shutdown signal received");

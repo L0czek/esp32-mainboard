@@ -1,3 +1,4 @@
+pub mod digital;
 pub mod fast;
 pub mod slow;
 pub mod status;

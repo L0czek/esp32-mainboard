@@ -197,6 +197,7 @@ async fn mqtt_connection_loop(
 fn publish_state_on_connect() {
     let _ = queue::publish_state_status(load_state_status());
     crate::servo::republish_servo_state();
+    crate::armed::republish_armed_state();
     queue::publish_command_log("Connected");
     info!("Published current state on connect");
 }
@@ -321,7 +322,8 @@ async fn publish_outbound_message(
 
     let retain = matches!(
         message,
-        OutboundMessage::ServoSensor(_)
+        OutboundMessage::Armed(_)
+            | OutboundMessage::ServoSensor(_)
             | OutboundMessage::ServoStatus(_)
             | OutboundMessage::StateStatus(_)
     );

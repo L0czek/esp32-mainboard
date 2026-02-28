@@ -1,8 +1,9 @@
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, TrySendError};
 
+use crate::mqtt::sensors::digital::ArmedPacket;
 use crate::mqtt::sensors::fast::{FastAdcChannel, FastAdcPacket};
-use crate::mqtt::sensors::slow::{ArmedPacket, ServoSensorPacket, SlowAdcChannel, SlowAdcPacket};
+use crate::mqtt::sensors::slow::{ServoSensorPacket, SlowAdcChannel, SlowAdcPacket};
 use crate::mqtt::sensors::status::{CommandStatusPacket, ServoStatus, StateStatus};
 use crate::mqtt::sensors::temp::TempPacket;
 
