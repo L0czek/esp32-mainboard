@@ -1,4 +1,4 @@
-use crate::mqtt::codec::{pack_u12_with_padding, validate_u12_samples, write_u32_le, EncodeError};
+use crate::mqtt::codec::{pack_u12, validate_u12_samples, write_u32_le, EncodeError};
 use crate::mqtt::sensors::EncodablePayload;
 use crate::mqtt::topics::{
     TOPIC_SENSOR_ADC_FAST_PRESSURE_COMBUSTION, TOPIC_SENSOR_ADC_FAST_PRESSURE_TANK,
@@ -102,7 +102,7 @@ impl EncodablePayload for FastAdcPacket {
         write_u32_le(&mut out[..4], self.first_timestamp_ms)?;
         write_u32_le(&mut out[4..8], self.last_timestamp_ms)?;
 
-        let written = pack_u12_with_padding(self.samples(), &mut out[8..])?;
+        let written = pack_u12(self.samples(), &mut out[8..])?;
         Ok(8 + written)
     }
 }

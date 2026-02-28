@@ -41,18 +41,20 @@ pub fn encoded_u12_len(sample_count: usize) -> Result<usize, EncodeError> {
     if sample_count == 0 {
         return Err(EncodeError::EmptySamples);
     }
-
-    let padded_count = if sample_count.is_multiple_of(2) {
-        sample_count + 1
-    } else {
-        sample_count
-    };
-
-    let pair_count = padded_count / 2;
-    Ok((pair_count * 3) + 2)
+    let full_pairs = sample_count / 2;
+    let trailing = if sample_count % 2 != 0 { 2 } else { 0 };
+    Ok(full_pairs * 3 + trailing)
 }
 
-pub fn pack_u12_with_padding(samples: &[u16], out: &mut [u8]) -> Result<usize, EncodeError> {
+/// Pack 12-bit samples:
+/// - Each pair is encoded in 3 bytes (AA AB BB):
+///     b0 = first[7:0]
+///     b1 = first[11:8] | (second[3:0] << 4)
+///     b2 = second[11:4]
+/// - Odd trailing sample is encoded in 2 bytes (AA A0):
+///     b0 = sample[7:0]
+///     b1 = sample[11:8]
+pub fn pack_u12(samples: &[u16], out: &mut [u8]) -> Result<usize, EncodeError> {
     let needed = encoded_u12_len(samples.len())?;
     if out.len() < needed {
         return Err(EncodeError::BufferTooSmall);
@@ -83,9 +85,6 @@ pub fn pack_u12_with_padding(samples: &[u16], out: &mut [u8]) -> Result<usize, E
         }
         out[out_index] = (sample & 0x00FF) as u8;
         out[out_index + 1] = ((sample >> 8) as u8) & 0x0F;
-    } else {
-        out[out_index] = 0;
-        out[out_index + 1] = 0;
     }
 
     Ok(needed)
