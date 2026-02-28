@@ -1,6 +1,5 @@
-use defmt::{info, warn};
-use embassy_time::{Duration, Timer, with_timeout};
-use esp_hal::gpio::Output;
+use defmt::info;
+use embassy_time::{with_timeout, Duration, Timer};
 use esp_hal::uart::{RxError, TxError, UartRx, UartTx};
 use esp_hal::Async;
 
@@ -33,7 +32,6 @@ pub enum Tmp107Error {
 pub struct Tmp107 {
     tx: UartTx<'static, Async>,
     rx: UartRx<'static, Async>,
-    dir: Output<'static>,
     sensor_count: u8,
 }
 
@@ -45,12 +43,10 @@ impl Tmp107 {
     pub async fn init(
         tx: UartTx<'static, Async>,
         rx: UartRx<'static, Async>,
-        dir: Output<'static>,
     ) -> Result<Self, Tmp107Error> {
         let mut driver = Self {
             tx,
             rx,
-            dir,
             sensor_count: 0,
         };
 
@@ -73,29 +69,21 @@ impl Tmp107 {
     }
 
     /// Read temperature from a single sensor by address (1-based).
-    pub async fn read_temperature(
-        &mut self,
-        address: u8,
-    ) -> Result<u16, Tmp107Error> {
+    pub async fn read_temperature(&mut self, address: u8) -> Result<u16, Tmp107Error> {
         self.individual_read(address, TEMP_REGISTER).await
     }
 
     /// Read temperatures from all discovered sensors via global read.
     /// Returns the number of readings written to `out`.
     /// Results are ordered by ascending address: out[0] = address 1.
-    pub async fn read_all_temperatures(
-        &mut self,
-        out: &mut [u16],
-    ) -> Result<usize, Tmp107Error> {
+    pub async fn read_all_temperatures(&mut self, out: &mut [u16]) -> Result<usize, Tmp107Error> {
         self.global_read(self.sensor_count, TEMP_REGISTER, out)
             .await
     }
 
     // -- Address discovery --
 
-    async fn discover_sensors(
-        &mut self,
-    ) -> Result<(), Tmp107Error> {
+    async fn discover_sensors(&mut self) -> Result<(), Tmp107Error> {
         let addr_assign = Self::addr_init_byte(0x01);
         let bytes = [CALIBRATION_BYTE, ADDR_INIT_COMMAND, addr_assign];
 
@@ -112,7 +100,7 @@ impl Tmp107 {
             {
                 Ok(Ok(())) => {}
                 Err(_) => break, // Timeout: no more sensors
-                Ok(Err(e)) => { return Err(Tmp107Error::UartRead(e)) }
+                Ok(Err(e)) => return Err(Tmp107Error::UartRead(e)),
             }
             count += 1;
             info!(
@@ -138,11 +126,7 @@ impl Tmp107 {
     /// Build command/address byte per datasheet Table 2:
     /// bit 0 = G/nI, bit 1 = R/nW, bit 2 = C/nA (0 for normal ops),
     /// bits 3-7 = AC0-AC4 (5-bit device address).
-    fn command_byte(
-        global: bool,
-        read: bool,
-        address: u8,
-    ) -> u8 {
+    fn command_byte(global: bool, read: bool, address: u8) -> u8 {
         let mut byte = (address & 0x1F) << 3;
         if global {
             byte |= 0x01;
@@ -166,29 +150,19 @@ impl Tmp107 {
     }
 
     /// Transmit bytes and wait for all bits to leave the wire.
-    fn tx_flush(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<(), Tmp107Error> {
+    fn tx_flush(&mut self, bytes: &[u8]) -> Result<(), Tmp107Error> {
         let mut to_write = bytes;
 
-        self.dir.set_high();
         while !to_write.is_empty() {
             let bytes_written = self.tx.write(to_write).map_err(Tmp107Error::UartWrite)?;
             to_write = &to_write[bytes_written..];
         }
-        self.tx
-            .flush()
-            .map_err(Tmp107Error::UartWrite)?;
-        self.dir.set_low();
+        self.tx.flush().map_err(Tmp107Error::UartWrite)?;
 
         Ok(())
     }
 
-    async fn read_exact(
-        &mut self,
-        buf: &mut [u8],
-    ) -> Result<(), Tmp107Error> {
+    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Tmp107Error> {
         with_timeout(
             Duration::from_millis(READ_TIMEOUT_MS),
             self.rx.read_exact_async(buf),
@@ -201,11 +175,7 @@ impl Tmp107 {
 
     // -- Protocol primitives --
 
-    async fn individual_read(
-        &mut self,
-        address: u8,
-        register: u8,
-    ) -> Result<u16, Tmp107Error> {
+    async fn individual_read(&mut self, address: u8, register: u8) -> Result<u16, Tmp107Error> {
         let cmd = Self::command_byte(false, true, address);
         let ptr = Self::register_pointer(register);
 
@@ -226,9 +196,10 @@ impl Tmp107 {
         let cmd = Self::command_byte(true, true, max_address);
         let ptr = Self::register_pointer(register);
 
-
         let mut clearnig_buffer = [0u8; 64];
-        self.rx.read_buffered(&mut clearnig_buffer).map_err(Tmp107Error::UartRead)?;
+        self.rx
+            .read_buffered(&mut clearnig_buffer)
+            .map_err(Tmp107Error::UartRead)?;
 
         self.tx_flush(&[CALIBRATION_BYTE, cmd, ptr])?;
 
