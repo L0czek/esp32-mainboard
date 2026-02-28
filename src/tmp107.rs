@@ -107,6 +107,37 @@ impl Tmp107 {
             .await
     }
 
+    /// Set ALERT1/ALERT2 LEDs on a single sensor.
+    /// With default limit registers, POL1/POL2 act as GPOs
+    /// (datasheet section 7.3.2). Keeps SD=1 (shutdown mode).
+    pub async fn set_leds(
+        &mut self,
+        address: u8,
+        led1: bool,
+        led2: bool,
+    ) -> Result<(), Tmp107Error> {
+        let mut config = CONFIG_SHUTDOWN;
+        if !led1 { // 1 in config reg disables the LED
+            config |= 1 << 7; // POL1
+        }
+        if !led2 {// 1 in config reg disables the LED
+            config |= 1 << 3; // POL2
+        }
+        self.individual_write(address, CONFIG_REGISTER, config)
+            .await
+    }
+
+    /// Show the two lowest bits of each sensor's address on its
+    /// ALERT LEDs. ALERT1 = bit 0, ALERT2 = bit 1.
+    pub async fn show_address_leds(&mut self) -> Result<(), Tmp107Error> {
+        for addr in 1..=self.sensor_count {
+            let led1 = (addr & 0x01) != 0;
+            let led2 = (addr & 0x02) != 0;
+            self.set_leds(addr, led1, led2).await?;
+        }
+        Ok(())
+    }
+
     // -- Address discovery --
 
     async fn discover_sensors(&mut self) -> Result<(), Tmp107Error> {
@@ -263,7 +294,6 @@ impl Tmp107 {
 
     /// Write to a single sensor. Data is sent in the same TX burst
     /// as the command and register pointer (datasheet Figure 26).
-    #[allow(dead_code)]
     async fn individual_write(
         &mut self,
         address: u8,
