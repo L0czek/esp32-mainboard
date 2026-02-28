@@ -1,12 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Current work scope is `src/bin/test_stand_controller/` only.
+Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107_sensor_test/`.
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
 - `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (20Hz one-shot + shutdown, 20-sample batched MQTT publish).
+- `src/bin/tmp107_sensor_test/main.rs`: standalone TMP107 diagnostic binary (discover chain, one-shot read, log values, blink LED pattern).
 - `src/bin/test_stand_controller/mqtt/client.rs`: DNS, TCP, MQTT session, command subscribe, event/select loop.
 - `src/bin/test_stand_controller/mqtt/queue.rs`: global outbound queue and public publish API.
 - `src/bin/test_stand_controller/mqtt/sensors/`: binary sensor/status payload types + encoders.
@@ -23,8 +24,11 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `cargo build --release --bin test_stand_controller`: optimized firmware build with auto-loaded compile-time env.
 - `cargo fmt --all`: format code.
 - `cargo clippy --bin test_stand_controller -- -D warnings`: lint this binary strictly.
+- `cargo check --bin tmp107_sensor_test`: fast compile check for the standalone TMP107 test target.
+- `cargo clippy --bin tmp107_sensor_test -- -D warnings`: lint the standalone TMP107 test target strictly.
 - `cargo espflash --release --bin test_stand_controller /dev/ttyUSB0`: flash device (update serial path).
 - `cargo run --bin test_stand_controller`: probe-run style flash/run flow when configured.
+- `cargo run --bin tmp107_sensor_test`: flash/run the standalone TMP107 diagnostic loop when configured.
 
 ## Current Implementation Status (test_stand_controller)
 - Boot sequence is implemented: RTT logging, Embassy runtime startup, heap allocation, board pin mapping, shared I2C bus init.
@@ -58,6 +62,9 @@ Current work scope is `src/bin/test_stand_controller/` only.
   `TEMP_COLLECTION_INTERVAL_MS` (50), `TEMP_BATCH_SIZE` (20), `ONESHOT_CONVERSION_MS` (20).
   Connected via UART0 (GPIO16 TX, GPIO17 RX) with D0 (GPIO23) as half-duplex
   transceiver direction, driven by UART DTR in hardware RS485 mode.
+- `tmp107_sensor_test` provides a standalone hardware test for that same UART0 TMP107 chain:
+  one-shot conversion, per-sensor temperature logging, a walking ALERT1/ALERT2 blink pattern,
+  address-bit LED display, then repeat.
 
 ## Coding Style & Naming Conventions
 Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiomatic Rust naming:

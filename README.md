@@ -4,7 +4,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 
 ## Repository layout
 
-- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`).
+- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`, `tmp107_sensor_test`).
 - `rust-toolchain.toml` — pinned Rust toolchain for the project.
 - `scripts/` — helper scripts for common local workflows.
 - `src/` — library and binary sources:
@@ -15,6 +15,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
     - `www_test/` — web server + diagnostic target (primary example).
     - `empty/` — minimal/empty binary.
     - `test_stand_controller/` — test stand firmware (power, WiFi, MQTT command + sensor pipeline).
+    - `tmp107_sensor_test/` — standalone TMP107 chain test (discover, read, log, LED blink loop).
 
 ## What this repo provides
 
@@ -39,6 +40,12 @@ To build the `test_stand_controller` binary:
 ```sh
 cp .env.example .env
 cargo build --release --bin test_stand_controller
+```
+
+To build the TMP107 sensor test binary:
+
+```sh
+cargo build --release --bin tmp107_sensor_test
 ```
 
 `build.rs` auto-loads `.env` at compile time for any `env!` config values.
@@ -87,8 +94,23 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   - `sensor_collection_task` reads raw ADC values.
   - Fast channels (A0/A1/A2) are batched into 100 samples with 1ms spacing per sample.
   - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
-  - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
-    direction control via D0 wired to UART DTR.
+- `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
+  direction control via D0 wired to UART DTR.
+
+## TMP107 Sensor Test
+
+- `tmp107_sensor_test` is a dedicated diagnostic binary for the TMP107 daisy chain on UART0.
+- On each cycle it:
+  - triggers a one-shot conversion,
+  - reads and logs every discovered sensor temperature,
+  - blinks a simple LED pattern across ALERT1/ALERT2,
+  - shows the address-bit LED pattern,
+  - then repeats.
+- Build or run it with:
+
+```sh
+cargo run --bin tmp107_sensor_test
+```
 
 ## Using `www_test`
 
