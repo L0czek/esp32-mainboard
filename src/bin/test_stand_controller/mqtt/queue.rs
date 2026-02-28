@@ -137,6 +137,12 @@ pub fn publish_command_status(status: CommandStatusPacket) -> Result<(), Publish
     enqueue(OutboundMessage::CommandStatus(status))
 }
 
+pub fn publish_command_log(msg: &str) {
+    if let Ok(packet) = CommandStatusPacket::from_str(msg) {
+        let _ = publish_command_status(packet);
+    }
+}
+
 pub(crate) async fn receive_outbound_message() -> OutboundMessage {
     OUTBOUND_QUEUE.receive().await
 }

@@ -21,6 +21,14 @@ impl StateStatus {
     pub const fn as_bytes(self) -> &'static [u8] {
         self.as_str().as_bytes()
     }
+
+    pub const fn as_log(self) -> &'static str {
+        match self {
+            Self::Armed => "State: ARMED",
+            Self::Fire => "State: FIRE",
+            Self::PostFire => "State: POSTFIRE",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
@@ -43,6 +51,15 @@ impl ServoStatus {
 
     pub const fn as_bytes(self) -> &'static [u8] {
         self.as_str().as_bytes()
+    }
+
+    pub const fn as_log(self) -> &'static str {
+        match self {
+            Self::Closed => "Servo closed",
+            Self::Opening => "Servo opening",
+            Self::Open => "Servo open",
+            Self::Closing => "Servo closing",
+        }
     }
 }
 

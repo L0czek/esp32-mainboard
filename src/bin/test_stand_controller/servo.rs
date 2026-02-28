@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use defmt::{info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -22,6 +24,8 @@ use crate::mqtt::sensors::status::ServoStatus;
 const TICK_INTERVAL_MS: u64 = 20;
 
 static SERVO_COMMAND_CHANNEL: Channel<CriticalSectionRawMutex, ServoCommand, 4> = Channel::new();
+static CURRENT_SERVO_STATUS: AtomicU32 = AtomicU32::new(0);
+static CURRENT_SERVO_TICKS: AtomicU32 = AtomicU32::new(0);
 
 pub fn send_servo_command(command: ServoCommand) {
     if SERVO_COMMAND_CHANNEL.try_send(command).is_err() {
@@ -55,17 +59,47 @@ fn status_for_command(command: ServoCommand) -> (ServoStatus, ServoStatus) {
 }
 
 fn publish_servo_status(status: ServoStatus) {
+    let encoded = match status {
+        ServoStatus::Closed => 0,
+        ServoStatus::Opening => 1,
+        ServoStatus::Open => 2,
+        ServoStatus::Closing => 3,
+    };
+    CURRENT_SERVO_STATUS.store(encoded, Ordering::Relaxed);
     if queue::publish_servo_status(status).is_err() {
         warn!("Failed to publish servo status: queue full");
     }
 }
 
 fn publish_servo_position(ticks: u16) {
+    CURRENT_SERVO_TICKS.store(ticks as u32, Ordering::Relaxed);
     let timestamp_ms = Instant::now().as_millis() as u32;
     let packet = ServoSensorPacket::new(timestamp_ms, ticks);
     if queue::publish_servo_sensor(packet).is_err() {
         warn!("Failed to publish servo position: queue full");
     }
+}
+
+pub fn current_servo_status() -> ServoStatus {
+    match CURRENT_SERVO_STATUS.load(Ordering::Relaxed) {
+        1 => ServoStatus::Opening,
+        2 => ServoStatus::Open,
+        3 => ServoStatus::Closing,
+        _ => ServoStatus::Closed,
+    }
+}
+
+pub fn current_servo_ticks() -> u16 {
+    CURRENT_SERVO_TICKS.load(Ordering::Relaxed) as u16
+}
+
+pub fn republish_servo_state() {
+    let status = current_servo_status();
+    let _ = queue::publish_servo_status(status);
+    let ticks = current_servo_ticks();
+    let timestamp_ms = Instant::now().as_millis() as u32;
+    let packet = ServoSensorPacket::new(timestamp_ms, ticks);
+    let _ = queue::publish_servo_sensor(packet);
 }
 
 #[embassy_executor::task]
@@ -106,6 +140,7 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
 
         let (moving_status, arrived_status) = status_for_command(command);
         publish_servo_status(moving_status);
+        queue::publish_command_log(moving_status.as_log());
 
         let total_time_ms = travel_time_ms(current_ticks, target_ticks);
         let total_steps = total_time_ms / TICK_INTERVAL_MS;
@@ -116,6 +151,7 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
             pwm_pin.set_timestamp(current_ticks);
             publish_servo_position(current_ticks);
             publish_servo_status(arrived_status);
+            queue::publish_command_log(arrived_status.as_log());
             continue;
         }
 
@@ -134,6 +170,7 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
                     if new_target == current_ticks {
                         let (_, new_arrived) = status_for_command(new_command);
                         publish_servo_status(new_arrived);
+                        queue::publish_command_log(new_arrived.as_log());
                         reached = true;
                         continue;
                     }
@@ -166,6 +203,7 @@ pub async fn servo_controller_task(mcpwm: MCPWM0<'static>, pin: D1Pin) {
 
         if current_ticks == target_ticks {
             publish_servo_status(arrived_status);
+            queue::publish_command_log(arrived_status.as_log());
         }
     }
 }
