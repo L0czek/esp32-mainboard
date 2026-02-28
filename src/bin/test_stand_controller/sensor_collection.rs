@@ -37,13 +37,13 @@ impl SensorCollectionState {
     fn new(io: SensorCollectionIo) -> Self {
         let mut config = AdcConfig::new();
 
-        let tensometer = config.enable_pin(io.tensometer, Attenuation::_11dB);
-        let pressure_tank = config.enable_pin(io.pressure_tank, Attenuation::_11dB);
-        let pressure_combustion = config.enable_pin(io.pressure_combustion, Attenuation::_11dB);
-        let starter_sense = config.enable_pin(io.starter_sense, Attenuation::_11dB);
-        let battery_stand = config.enable_pin(io.battery_stand, Attenuation::_11dB);
-        let battery_computer = config.enable_pin(io.battery_computer, Attenuation::_11dB);
-        let boost_voltage = config.enable_pin(io.boost_voltage, Attenuation::_11dB);
+        let tensometer = config.enable_pin(io.tensometer, Attenuation::_0dB);
+        let pressure_tank = config.enable_pin(io.pressure_tank, Attenuation::_0dB);
+        let pressure_combustion = config.enable_pin(io.pressure_combustion, Attenuation::_0dB);
+        let starter_sense = config.enable_pin(io.starter_sense, Attenuation::_0dB);
+        let battery_stand = config.enable_pin(io.battery_stand, Attenuation::_0dB);
+        let battery_computer = config.enable_pin(io.battery_computer, Attenuation::_0dB);
+        let boost_voltage = config.enable_pin(io.boost_voltage, Attenuation::_0dB);
 
         let adc = Adc::new(io.adc, config);
 
