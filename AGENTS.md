@@ -44,7 +44,7 @@ Current work scope is `src/bin/test_stand_controller/` only.
   10Hz global-read polling of all discovered sensors, raw 16-bit readings published
   to `sensor/temp/{id}` MQTT topics via existing TempPacket infrastructure.
   Connected via UART0 (GPIO16 TX, GPIO17 RX) with D0 (GPIO23) as half-duplex
-  direction control.
+  transceiver direction, now driven by UART DTR in hardware RS485 mode.
 
 ## Coding Style & Naming Conventions
 Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiomatic Rust naming:

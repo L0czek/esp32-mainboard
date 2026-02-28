@@ -84,6 +84,8 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   - `sensor_collection_task` reads raw ADC values.
   - Fast channels (A0/A1/A2) are batched into 100 samples with 1ms spacing per sample.
   - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
+  - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
+    direction control via D0 wired to UART DTR.
 
 ## Using `www_test`
 
