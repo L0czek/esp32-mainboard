@@ -15,6 +15,15 @@ const ADDR_INIT_COMMAND: u8 = 0x95;
 /// Temperature register address.
 const TEMP_REGISTER: u8 = 0x00;
 
+/// Configuration register address.
+const CONFIG_REGISTER: u8 = 0x01;
+
+/// Config: SD=1 (shutdown mode), all other bits 0.
+const CONFIG_SHUTDOWN: u16 = 0x0800;
+
+/// Config: SD=1 + OS=1 (trigger one-shot conversion from shutdown).
+const CONFIG_ONESHOT: u16 = 0x1800;
+
 /// Timeout for a single sensor response (individual read).
 const READ_TIMEOUT_MS: u64 = 10;
 
@@ -81,6 +90,21 @@ impl Tmp107 {
         self.global_read(self.sensor_count, TEMP_REGISTER, out)
             .await?;
         Ok(self.sensor_count.into())
+    }
+
+    /// Put all sensors into shutdown mode (stops continuous conversion).
+    /// Call once after init before starting one-shot collection loop.
+    pub async fn shutdown(&mut self) -> Result<(), Tmp107Error> {
+        self.global_write(self.sensor_count, CONFIG_REGISTER, CONFIG_SHUTDOWN)
+            .await
+    }
+
+    /// Trigger a single temperature conversion on all sensors.
+    /// Sensors return to shutdown mode after conversion completes.
+    /// Wait at least 20ms before reading results.
+    pub async fn trigger_one_shot(&mut self) -> Result<(), Tmp107Error> {
+        self.global_write(self.sensor_count, CONFIG_REGISTER, CONFIG_ONESHOT)
+            .await
     }
 
     // -- Address discovery --
@@ -256,7 +280,6 @@ impl Tmp107 {
 
     /// Write to all sensors up to max_address. Data is sent in the
     /// same TX burst (datasheet Figure 28).
-    #[allow(dead_code)]
     async fn global_write(
         &mut self,
         max_address: u8,
