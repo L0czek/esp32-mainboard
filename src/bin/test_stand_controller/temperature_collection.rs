@@ -63,7 +63,9 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
 
         for (i, &value) in buf.iter().enumerate().take(count) {
             let sensor_id = (i + 1) as u8;
-            let packet = match TempPacket::from_slice(sensor_id, timestamp_ms, &[value]) {
+            let packet = match TempPacket::from_slice(
+                sensor_id, timestamp_ms, timestamp_ms, &[value],
+            ) {
                 Ok(p) => p,
                 Err(e) => {
                     warn!("TMP107 packet error sensor {}: {:?}", sensor_id, e,);
