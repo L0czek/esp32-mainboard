@@ -6,7 +6,7 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
-- `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (10Hz polling via global read, MQTT publish).
+- `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (20Hz one-shot + shutdown, 20-sample batched MQTT publish).
 - `src/bin/test_stand_controller/mqtt/client.rs`: DNS, TCP, MQTT session, command subscribe, event/select loop.
 - `src/bin/test_stand_controller/mqtt/queue.rs`: global outbound queue and public publish API.
 - `src/bin/test_stand_controller/mqtt/sensors/`: binary sensor/status payload types + encoders.
@@ -51,10 +51,13 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
-  10Hz global-read polling of all discovered sensors, raw 16-bit readings published
-  to `sensor/temp/{id}` MQTT topics via existing TempPacket infrastructure.
+  one-shot + shutdown mode at 20Hz (50ms interval) for best accuracy per datasheet.
+  Each cycle: global one-shot trigger → 20ms conversion wait → global read.
+  20 readings batched per sensor into a single TempPacket published once per second
+  to `sensor/temp/{id}` MQTT topics. Config constants in `config.rs`:
+  `TEMP_COLLECTION_INTERVAL_MS` (50), `TEMP_BATCH_SIZE` (20), `ONESHOT_CONVERSION_MS` (20).
   Connected via UART0 (GPIO16 TX, GPIO17 RX) with D0 (GPIO23) as half-duplex
-  transceiver direction, now driven by UART DTR in hardware RS485 mode.
+  transceiver direction, driven by UART DTR in hardware RS485 mode.
 
 ## Coding Style & Naming Conventions
 Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiomatic Rust naming:

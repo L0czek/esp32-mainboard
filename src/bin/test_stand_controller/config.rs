@@ -8,7 +8,9 @@ pub static MQTT_CLIENT_ID: &str = match option_env!("MQTT_CLIENT_ID") {
     Some(id) => id,
     None => "esp32-test-stand",
 };
-pub const TEMP_COLLECTION_INTERVAL_MS: u64 = 100;
+pub const TEMP_COLLECTION_INTERVAL_MS: u64 = 50;
+pub const TEMP_BATCH_SIZE: usize = 20;
+pub const ONESHOT_CONVERSION_MS: u64 = 20;
 
 // Servo pulse width range (MCPWM ticks mapping physical 0-180 degrees)
 pub const SERVO_MIN_PULSE_TICKS: u16 = 500;
