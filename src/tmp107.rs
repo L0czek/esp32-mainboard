@@ -25,6 +25,7 @@ const ADDR_DISCOVER_TIMEOUT_MS: u64 = 50;
 pub enum Tmp107Error {
     UartWrite(TxError),
     UartRead(RxError),
+    BufferTooSmall,
     Timeout,
     NoSensorsFound,
 }
@@ -78,7 +79,8 @@ impl Tmp107 {
     /// Results are ordered by ascending address: out[0] = address 1.
     pub async fn read_all_temperatures(&mut self, out: &mut [u16]) -> Result<usize, Tmp107Error> {
         self.global_read(self.sensor_count, TEMP_REGISTER, out)
-            .await
+            .await?;
+        Ok(self.sensor_count.into())
     }
 
     // -- Address discovery --
@@ -87,7 +89,8 @@ impl Tmp107 {
         let addr_assign = Self::addr_init_byte(0x01);
         let bytes = [CALIBRATION_BYTE, ADDR_INIT_COMMAND, addr_assign];
 
-        self.tx_flush(&bytes)?;
+        self.clear_read_buffer()?;
+        self.tx(&bytes).await?;
 
         let mut count: u8 = 0;
         let mut response = [0u8; 1];
@@ -104,8 +107,10 @@ impl Tmp107 {
             }
             count += 1;
             info!(
-                "TMP107 sensor {} discovered (byte: {:#04x})",
-                count, response[0]
+                "TMP107 sensor {} discovered (byte: {:#04x}, address: {})",
+                count,
+                response[0],
+                response[0] & 0b00011111
             );
             if count as usize >= MAX_SENSORS {
                 break;
@@ -150,22 +155,33 @@ impl Tmp107 {
     }
 
     /// Transmit bytes and wait for all bits to leave the wire.
-    fn tx_flush(&mut self, bytes: &[u8]) -> Result<(), Tmp107Error> {
+    async fn tx(&mut self, bytes: &[u8]) -> Result<(), Tmp107Error> {
         let mut to_write = bytes;
 
         while !to_write.is_empty() {
-            let bytes_written = self.tx.write(to_write).map_err(Tmp107Error::UartWrite)?;
+            let bytes_written = self
+                .tx
+                .write_async(to_write)
+                .await
+                .map_err(Tmp107Error::UartWrite)?;
             to_write = &to_write[bytes_written..];
         }
-        self.tx.flush().map_err(Tmp107Error::UartWrite)?;
 
         Ok(())
     }
 
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Tmp107Error> {
+    fn clear_read_buffer(&mut self) -> Result<(), Tmp107Error> {
+        let mut clearnig_buffer = [0u8; 64];
+        self.rx
+            .read_buffered(&mut clearnig_buffer)
+            .map_err(Tmp107Error::UartRead)?;
+        Ok(())
+    }
+
+    async fn read_exact(&mut self, buf: &mut [u8], len: usize) -> Result<(), Tmp107Error> {
         with_timeout(
             Duration::from_millis(READ_TIMEOUT_MS),
-            self.rx.read_exact_async(buf),
+            self.rx.read_exact_async(&mut buf[..len]),
         )
         .await
         .map_err(|_| Tmp107Error::Timeout)?
@@ -179,42 +195,46 @@ impl Tmp107 {
         let cmd = Self::command_byte(false, true, address);
         let ptr = Self::register_pointer(register);
 
-        self.tx_flush(&[CALIBRATION_BYTE, cmd, ptr])?;
+        self.clear_read_buffer()?;
+
+        self.tx(&[CALIBRATION_BYTE, cmd, ptr]).await?;
 
         let mut buf = [0u8; 2];
-        self.read_exact(&mut buf).await?;
+        self.read_exact(&mut buf, 2).await?;
         Ok(u16::from_le_bytes(buf))
     }
 
+    /// Reads all sensors up to max_address. max_address is the number of sensors
+    /// queried (we number sensors from 1)
+    /// out must fit all the data (be at least max_address len)
     async fn global_read(
         &mut self,
         max_address: u8,
         register: u8,
         out: &mut [u16],
-    ) -> Result<usize, Tmp107Error> {
-        let count = (max_address as usize).min(out.len());
+    ) -> Result<(), Tmp107Error> {
+        if out.len() < max_address.into() {
+            return Err(Tmp107Error::BufferTooSmall);
+        }
+
+        let count = max_address as usize;
         let cmd = Self::command_byte(true, true, max_address);
         let ptr = Self::register_pointer(register);
 
-        let mut clearnig_buffer = [0u8; 64];
-        self.rx
-            .read_buffered(&mut clearnig_buffer)
-            .map_err(Tmp107Error::UartRead)?;
+        self.clear_read_buffer()?;
 
-        self.tx_flush(&[CALIBRATION_BYTE, cmd, ptr])?;
+        self.tx(&[CALIBRATION_BYTE, cmd, ptr]).await?;
 
-        let mut buf = [0u8; 2];
+        let mut buf = [0u8; MAX_SENSORS * 2];
 
-        for slot in out.iter_mut().take(count) {
-            self.read_exact(&mut buf).await?;
-            *slot = u16::from_le_bytes(buf);
+        self.read_exact(&mut buf, count * 2).await?;
+
+        for i in 0..count {
+            // Responses arrive highest-address-first (datasheet Figure 29);
+            out[count - 1 - i] = u16::from_le_bytes([buf[i * 2], buf[i * 2 + 1]])
         }
 
-        // Responses arrive highest-address-first (datasheet Figure 29);
-        // reverse so out[0] = address 1 (ascending order).
-        out[..count].reverse();
-
-        Ok(count)
+        Ok(())
     }
 
     /// Write to a single sensor. Data is sent in the same TX burst
@@ -231,9 +251,7 @@ impl Tmp107 {
         let data = value.to_le_bytes();
         let bytes = [CALIBRATION_BYTE, cmd, ptr, data[0], data[1]];
 
-        self.tx_flush(&bytes)?;
-
-        Ok(())
+        self.tx(&bytes).await
     }
 
     /// Write to all sensors up to max_address. Data is sent in the
@@ -250,8 +268,6 @@ impl Tmp107 {
         let data = value.to_le_bytes();
         let bytes = [CALIBRATION_BYTE, cmd, ptr, data[0], data[1]];
 
-        self.tx_flush(&bytes)?;
-
-        Ok(())
+        self.tx(&bytes).await
     }
 }

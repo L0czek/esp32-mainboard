@@ -6,7 +6,7 @@ use crate::mqtt::sensors::slow::{ArmedPacket, ServoSensorPacket, SlowAdcChannel,
 use crate::mqtt::sensors::status::{CommandStatusPacket, ServoStatus, StateStatus};
 use crate::mqtt::sensors::temp::TempPacket;
 
-pub const OUTBOUND_QUEUE_CAPACITY: usize = 128;
+pub const OUTBOUND_QUEUE_CAPACITY: usize = 256;
 
 static OUTBOUND_QUEUE: Channel<CriticalSectionRawMutex, OutboundMessage, OUTBOUND_QUEUE_CAPACITY> =
     Channel::new();

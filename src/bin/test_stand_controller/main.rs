@@ -133,9 +133,7 @@ async fn main(spawner: Spawner) {
     };
 
     spawner
-        .spawn(temperature_collection::temperature_collection_task(
-            temp_io,
-        ))
+        .spawn(temperature_collection::temperature_collection_task(temp_io))
         .expect("Failed to spawn temperature_collection_task");
     info!("Temperature collection task spawned");
 

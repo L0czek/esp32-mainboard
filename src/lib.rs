@@ -4,7 +4,7 @@
 pub mod board;
 pub mod channel;
 pub mod power;
-pub mod tmp107;
 pub mod tasks;
+pub mod tmp107;
 
 pub use board::I2cType;

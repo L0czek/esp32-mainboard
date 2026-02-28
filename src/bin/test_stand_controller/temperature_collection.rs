@@ -53,7 +53,7 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
 
         let timestamp_ms = Instant::now().as_millis() as u32;
 
-        let count = match driver.read_all_temperatures(&mut buf).await {
+        let count: usize = match driver.read_all_temperatures(&mut buf).await {
             Ok(n) => n,
             Err(e) => {
                 warn!("TMP107 read failed: {:?}", e);
