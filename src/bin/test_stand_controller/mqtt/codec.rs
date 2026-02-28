@@ -42,18 +42,22 @@ pub fn encoded_u12_len(sample_count: usize) -> Result<usize, EncodeError> {
         return Err(EncodeError::EmptySamples);
     }
     let full_pairs = sample_count / 2;
-    let trailing = if sample_count % 2 != 0 { 2 } else { 0 };
+    let trailing = if !sample_count.is_multiple_of(2) {
+        2
+    } else {
+        0
+    };
     Ok(full_pairs * 3 + trailing)
 }
 
 /// Pack 12-bit samples:
 /// - Each pair is encoded in 3 bytes (AA AB BB):
-///     b0 = first[7:0]
-///     b1 = first[11:8] | (second[3:0] << 4)
-///     b2 = second[11:4]
+///   b0 = first[7:0]
+///   b1 = first[11:8] | (second[3:0] << 4)
+///   b2 = second[11:4]
 /// - Odd trailing sample is encoded in 2 bytes (AA A0):
-///     b0 = sample[7:0]
-///     b1 = sample[11:8]
+///   b0 = sample[7:0]
+///   b1 = sample[11:8]
 pub fn pack_u12(samples: &[u16], out: &mut [u8]) -> Result<usize, EncodeError> {
     let needed = encoded_u12_len(samples.len())?;
     if out.len() < needed {

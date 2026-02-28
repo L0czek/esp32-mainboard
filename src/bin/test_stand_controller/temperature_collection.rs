@@ -3,9 +3,7 @@ use embassy_time::{Duration, Instant, Ticker, Timer};
 use esp_hal::peripherals::UART0;
 use esp_hal::uart::Uart;
 
-use crate::config::{
-    ONESHOT_CONVERSION_MS, TEMP_BATCH_SIZE, TEMP_COLLECTION_INTERVAL_MS,
-};
+use crate::config::{ONESHOT_CONVERSION_MS, TEMP_BATCH_SIZE, TEMP_COLLECTION_INTERVAL_MS};
 use crate::mqtt::publish_temperature_sensor;
 use crate::mqtt::sensors::temp::TempPacket;
 use mainboard::board::{D0Pin, U0RxPin, U0TxPin};
@@ -53,9 +51,7 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
         sensor_count, TEMP_COLLECTION_INTERVAL_MS, TEMP_BATCH_SIZE,
     );
 
-    let mut ticker = Ticker::every(Duration::from_millis(
-        TEMP_COLLECTION_INTERVAL_MS,
-    ));
+    let mut ticker = Ticker::every(Duration::from_millis(TEMP_COLLECTION_INTERVAL_MS));
     let mut read_buf = [0u16; MAX_SENSORS];
     let mut batch = [[0u16; TEMP_BATCH_SIZE]; MAX_SENSORS];
     let mut sample_index: usize = 0;
@@ -71,14 +67,17 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
 
         Timer::after_millis(ONESHOT_CONVERSION_MS).await;
 
-        let count = match driver.read_all_temperatures(&mut read_buf).await
-        {
+        let count = match driver.read_all_temperatures(&mut read_buf).await {
             Ok(n) => n,
             Err(e) => {
                 warn!("TMP107 read failed: {:?}", e);
                 continue;
             }
         };
+
+        if let Err(e) = driver.show_address_leds().await {
+            warn!("TMP107 show address LEDs failed: {:?}", e);
+        }
 
         let now = Instant::now().as_millis() as u32;
 
@@ -92,9 +91,7 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
         sample_index += 1;
 
         if sample_index >= TEMP_BATCH_SIZE {
-            for (sensor, samples) in
-                batch.iter().enumerate().take(count)
-            {
+            for (sensor, samples) in batch.iter().enumerate().take(count) {
                 let sensor_id = (sensor + 1) as u8;
                 let packet = match TempPacket::from_slice(
                     sensor_id,
@@ -104,10 +101,7 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
                 ) {
                     Ok(p) => p,
                     Err(e) => {
-                        warn!(
-                            "TMP107 packet error sensor {}: {:?}",
-                            sensor_id, e,
-                        );
+                        warn!("TMP107 packet error sensor {}: {:?}", sensor_id, e,);
                         continue;
                     }
                 };

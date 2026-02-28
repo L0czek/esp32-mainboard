@@ -18,11 +18,51 @@ const TEMP_REGISTER: u8 = 0x00;
 /// Configuration register address.
 const CONFIG_REGISTER: u8 = 0x01;
 
-/// Config: SD=1 (shutdown mode), all other bits 0.
-const CONFIG_SHUTDOWN: u16 = 0x0800;
+/// High limit 1 register address.
+const HIGH_LIMIT_1_REGISTER: u8 = 0x02;
 
-/// Config: SD=1 + OS=1 (trigger one-shot conversion from shutdown).
-const CONFIG_ONESHOT: u16 = 0x1800;
+/// Low limit 1 register address.
+const LOW_LIMIT_1_REGISTER: u8 = 0x03;
+
+/// High limit 2 register address.
+const HIGH_LIMIT_2_REGISTER: u8 = 0x04;
+
+/// Low limit 2 register address.
+const LOW_LIMIT_2_REGISTER: u8 = 0x05;
+
+/// One-shot mode bit.
+const CONFIG_OS_BIT: u16 = 1 << 12;
+
+/// Shutdown mode bit.
+const CONFIG_SD_BIT: u16 = 1 << 11;
+
+/// Therm mode selection for ALERT1.
+const CONFIG_T1_A1_BIT: u16 = 1 << 8;
+
+/// ALERT1 polarity.
+const CONFIG_POL1_BIT: u16 = 1 << 7;
+
+/// Therm mode selection for ALERT2.
+const CONFIG_T2_A2_BIT: u16 = 1 << 4;
+
+/// ALERT2 polarity.
+const CONFIG_POL2_BIT: u16 = 1 << 3;
+
+/// Shared config used by all sensors: shutdown + therm mode + default LED off.
+const DEFAULT_CONFIG_REGISTER: u16 =
+    CONFIG_SD_BIT | CONFIG_T1_A1_BIT | CONFIG_POL1_BIT | CONFIG_T2_A2_BIT | CONFIG_POL2_BIT;
+
+/// Maximum legal alert threshold (bits 1:0 must stay 0).
+const TEMP_LIMIT_MAX: u16 = 0x7FFC;
+
+/// Minimum legal alert threshold.
+const TEMP_LIMIT_MIN: u16 = 0x8000;
+
+/// One temperature LSB in the 16-bit register encoding.
+const TEMP_RAW_LSB: u16 = 0x0004;
+
+/// Any low limit other than TEMP_LIMIT_MIN keeps the alert block enabled.
+const LED_ON_LOW_LIMIT: u16 = TEMP_LIMIT_MAX - TEMP_RAW_LSB;
 
 /// Timeout for a single sensor response (individual read).
 const READ_TIMEOUT_MS: u64 = 10;
@@ -43,6 +83,7 @@ pub struct Tmp107 {
     tx: UartTx<'static, Async>,
     rx: UartRx<'static, Async>,
     sensor_count: u8,
+    config_register: u16,
 }
 
 impl Tmp107 {
@@ -58,6 +99,7 @@ impl Tmp107 {
             tx,
             rx,
             sensor_count: 0,
+            config_register: DEFAULT_CONFIG_REGISTER,
         };
 
         loop {
@@ -95,35 +137,28 @@ impl Tmp107 {
     /// Put all sensors into shutdown mode (stops continuous conversion).
     /// Call once after init before starting one-shot collection loop.
     pub async fn shutdown(&mut self) -> Result<(), Tmp107Error> {
-        self.global_write(self.sensor_count, CONFIG_REGISTER, CONFIG_SHUTDOWN)
-            .await
+        self.write_global_config(CONFIG_SD_BIT, CONFIG_OS_BIT).await
     }
 
     /// Trigger a single temperature conversion on all sensors.
     /// Sensors return to shutdown mode after conversion completes.
     /// Wait at least 20ms before reading results.
     pub async fn trigger_one_shot(&mut self) -> Result<(), Tmp107Error> {
-        self.global_write(self.sensor_count, CONFIG_REGISTER, CONFIG_ONESHOT)
+        self.write_global_config(CONFIG_SD_BIT | CONFIG_OS_BIT, 0)
             .await
     }
 
-    /// Set ALERT1/ALERT2 LEDs on a single sensor.
-    /// With default limit registers, POL1/POL2 act as GPOs
-    /// (datasheet section 7.3.2). Keeps SD=1 (shutdown mode).
+    /// Set ALERT1/ALERT2 LEDs on a single sensor using per-sensor limit registers.
+    /// All sensors keep the same shared config register value.
     pub async fn set_leds(
         &mut self,
         address: u8,
         led1: bool,
         led2: bool,
     ) -> Result<(), Tmp107Error> {
-        let mut config = CONFIG_SHUTDOWN;
-        if !led1 { // 1 in config reg disables the LED
-            config |= 1 << 7; // POL1
-        }
-        if !led2 {// 1 in config reg disables the LED
-            config |= 1 << 3; // POL2
-        }
-        self.individual_write(address, CONFIG_REGISTER, config)
+        self.set_led_output(address, HIGH_LIMIT_1_REGISTER, LOW_LIMIT_1_REGISTER, led1)
+            .await?;
+        self.set_led_output(address, HIGH_LIMIT_2_REGISTER, LOW_LIMIT_2_REGISTER, led2)
             .await
     }
 
@@ -179,6 +214,35 @@ impl Tmp107 {
         self.sensor_count = count;
         info!("TMP107 init complete: {} sensors", count);
         Ok(())
+    }
+
+    async fn write_global_config(
+        &mut self,
+        set_bits: u16,
+        clear_bits: u16,
+    ) -> Result<(), Tmp107Error> {
+        let config = (self.config_register | set_bits) & !clear_bits;
+        self.config_register = config & !CONFIG_OS_BIT;
+        self.global_write(self.sensor_count, CONFIG_REGISTER, config)
+            .await
+    }
+
+    async fn set_led_output(
+        &mut self,
+        address: u8,
+        high_register: u8,
+        low_register: u8,
+        led_on: bool,
+    ) -> Result<(), Tmp107Error> {
+        self.individual_write(address, high_register, TEMP_LIMIT_MAX)
+            .await?;
+        let low_limit = if led_on {
+            LED_ON_LOW_LIMIT
+        } else {
+            TEMP_LIMIT_MIN
+        };
+        self.individual_write(address, low_register, low_limit)
+            .await
     }
 
     // -- Protocol helpers --
