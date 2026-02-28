@@ -39,41 +39,34 @@ impl SensorCollectionState {
     fn new(io: SensorCollectionIo) -> Self {
         let mut config = AdcConfig::new();
 
-        let tensometer =
-            config.enable_pin_with_cal::<A0Pin, AdcCalBasic<ADC1<'static>>>(
-                io.tensometer,
-                Attenuation::_0dB,
-            );
-        let pressure_tank =
-            config.enable_pin_with_cal::<A1Pin, AdcCalBasic<ADC1<'static>>>(
-                io.pressure_tank,
-                Attenuation::_0dB,
-            );
-        let pressure_combustion =
-            config.enable_pin_with_cal::<A2Pin, AdcCalBasic<ADC1<'static>>>(
-                io.pressure_combustion,
-                Attenuation::_0dB,
-            );
-        let starter_sense =
-            config.enable_pin_with_cal::<A3Pin, AdcCalBasic<ADC1<'static>>>(
-                io.starter_sense,
-                Attenuation::_0dB,
-            );
-        let battery_stand =
-            config.enable_pin_with_cal::<A4Pin, AdcCalBasic<ADC1<'static>>>(
-                io.battery_stand,
-                Attenuation::_0dB,
-            );
-        let battery_computer =
-            config.enable_pin_with_cal::<BatVolPin, AdcCalBasic<ADC1<'static>>>(
-                io.battery_computer,
-                Attenuation::_0dB,
-            );
-        let boost_voltage =
-            config.enable_pin_with_cal::<BoostVolPin, AdcCalBasic<ADC1<'static>>>(
-                io.boost_voltage,
-                Attenuation::_0dB,
-            );
+        let tensometer = config.enable_pin_with_cal::<A0Pin, AdcCalBasic<ADC1<'static>>>(
+            io.tensometer,
+            Attenuation::_0dB,
+        );
+        let pressure_tank = config.enable_pin_with_cal::<A1Pin, AdcCalBasic<ADC1<'static>>>(
+            io.pressure_tank,
+            Attenuation::_0dB,
+        );
+        let pressure_combustion = config.enable_pin_with_cal::<A2Pin, AdcCalBasic<ADC1<'static>>>(
+            io.pressure_combustion,
+            Attenuation::_0dB,
+        );
+        let starter_sense = config.enable_pin_with_cal::<A3Pin, AdcCalBasic<ADC1<'static>>>(
+            io.starter_sense,
+            Attenuation::_0dB,
+        );
+        let battery_stand = config.enable_pin_with_cal::<A4Pin, AdcCalBasic<ADC1<'static>>>(
+            io.battery_stand,
+            Attenuation::_0dB,
+        );
+        let battery_computer = config.enable_pin_with_cal::<BatVolPin, AdcCalBasic<ADC1<'static>>>(
+            io.battery_computer,
+            Attenuation::_0dB,
+        );
+        let boost_voltage = config.enable_pin_with_cal::<BoostVolPin, AdcCalBasic<ADC1<'static>>>(
+            io.boost_voltage,
+            Attenuation::_0dB,
+        );
 
         let adc = Adc::new(io.adc, config);
 

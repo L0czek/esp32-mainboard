@@ -106,9 +106,7 @@ impl ServoCommandHandler for AppCommandHandlers {
     fn handle_servo_command(&mut self, command: ServoCommand) {
         if self.state == StateStatus::Fire {
             warn!("MQTT command ignored: cmd/servo in FIRE state");
-            queue::publish_command_log(
-                "Servo command rejected: FIRE state",
-            );
+            queue::publish_command_log("Servo command rejected: FIRE state");
             return;
         }
 

@@ -45,7 +45,13 @@ impl TempPacket {
 
         let mut copy = [0u16; TEMP_MAX_SAMPLES];
         copy[..values.len()].copy_from_slice(values);
-        Self::new(sensor_id, first_timestamp_ms, last_timestamp_ms, copy, values.len())
+        Self::new(
+            sensor_id,
+            first_timestamp_ms,
+            last_timestamp_ms,
+            copy,
+            values.len(),
+        )
     }
 
     pub const fn sensor_id(&self) -> u8 {

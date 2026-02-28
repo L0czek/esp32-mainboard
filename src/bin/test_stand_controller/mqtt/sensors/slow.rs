@@ -2,8 +2,7 @@ use crate::mqtt::codec::{write_u16_le, write_u32_le, EncodeError};
 use crate::mqtt::sensors::EncodablePayload;
 use crate::mqtt::topics::{
     TOPIC_SENSOR_ADC_SLOW_BATTERY_COMPUTER, TOPIC_SENSOR_ADC_SLOW_BATTERY_STAND,
-    TOPIC_SENSOR_ADC_SLOW_BOOST_VOLTAGE, TOPIC_SENSOR_ADC_SLOW_STARTER_SENSE,
-    TOPIC_SENSOR_SERVO,
+    TOPIC_SENSOR_ADC_SLOW_BOOST_VOLTAGE, TOPIC_SENSOR_ADC_SLOW_STARTER_SENSE, TOPIC_SENSOR_SERVO,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
