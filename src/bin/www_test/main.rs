@@ -6,6 +6,7 @@
     reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
     holding buffers for the duration of a data transfer."
 )]
+#![recursion_limit = "256"]
 
 mod adc;
 mod config;
