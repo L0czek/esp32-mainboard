@@ -1,7 +1,7 @@
-use defmt::info;
-use embassy_time::{with_timeout, Duration};
+use defmt::{info, warn};
+use embassy_time::{Duration, Timer, with_timeout};
 use esp_hal::gpio::Output;
-use esp_hal::uart::{UartRx, UartTx};
+use esp_hal::uart::{RxError, TxError, UartRx, UartTx};
 use esp_hal::Async;
 
 /// Maximum sensors in a TMP107 daisy chain (5-bit address space).
@@ -24,8 +24,8 @@ const ADDR_DISCOVER_TIMEOUT_MS: u64 = 50;
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
 pub enum Tmp107Error {
-    UartWrite,
-    UartRead,
+    UartWrite(TxError),
+    UartRead(RxError),
     Timeout,
     NoSensorsFound,
 }
@@ -54,7 +54,17 @@ impl Tmp107 {
             sensor_count: 0,
         };
 
-        driver.discover_sensors().await?;
+        loop {
+            match driver.discover_sensors().await {
+                Ok(()) => {
+                    break;
+                }
+                Err(_) => {
+                    info!("No sensors discovered");
+                    Timer::after_millis(100).await;
+                }
+            }
+        }
         Ok(driver)
     }
 
@@ -89,9 +99,7 @@ impl Tmp107 {
         let addr_assign = Self::addr_init_byte(0x01);
         let bytes = [CALIBRATION_BYTE, ADDR_INIT_COMMAND, addr_assign];
 
-        self.dir.set_high();
-        self.tx_flush(&bytes).await?;
-        self.dir.set_low();
+        self.tx_flush(&bytes)?;
 
         let mut count: u8 = 0;
         let mut response = [0u8; 1];
@@ -104,7 +112,7 @@ impl Tmp107 {
             {
                 Ok(Ok(())) => {}
                 Err(_) => break, // Timeout: no more sensors
-                Ok(Err(_)) => return Err(Tmp107Error::UartRead),
+                Ok(Err(e)) => { return Err(Tmp107Error::UartRead(e)) }
             }
             count += 1;
             info!(
@@ -152,24 +160,28 @@ impl Tmp107 {
     }
 
     /// Build register pointer byte per datasheet Figure 21:
-    /// bits 7-4 = P3-P0 (register address), bits 3-0 = 0101.
+    /// bits 3-0 = P3-P0 (register address), bits 7-4 = 0101.
     fn register_pointer(register: u8) -> u8 {
-        ((register & 0x0F) << 4) | 0x05
+        (register & 0x0F) | 0xA0
     }
 
     /// Transmit bytes and wait for all bits to leave the wire.
-    async fn tx_flush(
+    fn tx_flush(
         &mut self,
         bytes: &[u8],
     ) -> Result<(), Tmp107Error> {
+        let mut to_write = bytes;
+
+        self.dir.set_high();
+        while !to_write.is_empty() {
+            let bytes_written = self.tx.write(to_write).map_err(Tmp107Error::UartWrite)?;
+            to_write = &to_write[bytes_written..];
+        }
         self.tx
-            .write_async(bytes)
-            .await
-            .map_err(|_| Tmp107Error::UartWrite)?;
-        self.tx
-            .flush_async()
-            .await
-            .map_err(|_| Tmp107Error::UartWrite)?;
+            .flush()
+            .map_err(Tmp107Error::UartWrite)?;
+        self.dir.set_low();
+
         Ok(())
     }
 
@@ -183,7 +195,7 @@ impl Tmp107 {
         )
         .await
         .map_err(|_| Tmp107Error::Timeout)?
-        .map_err(|_| Tmp107Error::UartRead)?;
+        .map_err(Tmp107Error::UartRead)?;
         Ok(())
     }
 
@@ -197,9 +209,7 @@ impl Tmp107 {
         let cmd = Self::command_byte(false, true, address);
         let ptr = Self::register_pointer(register);
 
-        self.dir.set_high();
-        self.tx_flush(&[CALIBRATION_BYTE, cmd, ptr]).await?;
-        self.dir.set_low();
+        self.tx_flush(&[CALIBRATION_BYTE, cmd, ptr])?;
 
         let mut buf = [0u8; 2];
         self.read_exact(&mut buf).await?;
@@ -216,11 +226,14 @@ impl Tmp107 {
         let cmd = Self::command_byte(true, true, max_address);
         let ptr = Self::register_pointer(register);
 
-        self.dir.set_high();
-        self.tx_flush(&[CALIBRATION_BYTE, cmd, ptr]).await?;
-        self.dir.set_low();
+
+        let mut clearnig_buffer = [0u8; 64];
+        self.rx.read_buffered(&mut clearnig_buffer).map_err(Tmp107Error::UartRead)?;
+
+        self.tx_flush(&[CALIBRATION_BYTE, cmd, ptr])?;
 
         let mut buf = [0u8; 2];
+
         for slot in out.iter_mut().take(count) {
             self.read_exact(&mut buf).await?;
             *slot = u16::from_le_bytes(buf);
@@ -247,9 +260,7 @@ impl Tmp107 {
         let data = value.to_le_bytes();
         let bytes = [CALIBRATION_BYTE, cmd, ptr, data[0], data[1]];
 
-        self.dir.set_high();
-        self.tx_flush(&bytes).await?;
-        self.dir.set_low();
+        self.tx_flush(&bytes)?;
 
         Ok(())
     }
@@ -268,9 +279,7 @@ impl Tmp107 {
         let data = value.to_le_bytes();
         let bytes = [CALIBRATION_BYTE, cmd, ptr, data[0], data[1]];
 
-        self.dir.set_high();
-        self.tx_flush(&bytes).await?;
-        self.dir.set_low();
+        self.tx_flush(&bytes)?;
 
         Ok(())
     }
