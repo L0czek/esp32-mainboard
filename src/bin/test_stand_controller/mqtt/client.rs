@@ -246,9 +246,13 @@ async fn run_session_loop(
     let mut temp_topic_buffer = [0u8; TEMP_TOPIC_BUFFER_LEN];
 
     loop {
-        match select(client.poll(), queue::receive_outbound_message()).await {
-            Either::First(poll_result) => {
-                let event = poll_result.map_err(|_| AppMqttError::MqttError)?;
+        match select(client.poll_header(), queue::receive_outbound_message()).await {
+            Either::First(header_result) => {
+                let header = header_result.map_err(|_| AppMqttError::MqttError)?;
+                let event = client
+                    .poll_body(header)
+                    .await
+                    .map_err(|_| AppMqttError::MqttError)?;
                 handle_incoming_event(event, &mut dispatcher);
             }
             Either::Second(message) => {
