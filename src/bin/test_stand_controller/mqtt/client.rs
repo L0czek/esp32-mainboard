@@ -89,7 +89,15 @@ impl ShutdownCommandHandler for AppCommandHandlers {
     fn handle_shutdown_command(&mut self, command: ShutdownCommand) {
         match command {
             ShutdownCommand::Shutdown => {
+                if crate::sequencer::load_state() == StateStatus::Fire {
+                    warn!("MQTT command ignored: SHUTDOWN in FIRE state");
+                    queue::publish_command_log(
+                        "Shutdown rejected: FIRE state",
+                    );
+                    return;
+                }
                 info!("MQTT command: SHUTDOWN");
+                queue::publish_command_log("Shutdown");
                 self.shutdown_signal.signal(());
             }
         }
