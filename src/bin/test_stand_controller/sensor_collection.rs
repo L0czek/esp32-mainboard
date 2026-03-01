@@ -1,5 +1,5 @@
 use defmt::warn;
-use embassy_time::{Instant, Timer};
+use embassy_time::{Duration, Instant, Ticker};
 use esp_hal::analog::adc::{
     Adc, AdcCalBasic, AdcCalScheme, AdcChannel, AdcConfig, AdcPin, Attenuation,
 };
@@ -12,6 +12,7 @@ use crate::mqtt::{publish_fast_sensors, publish_slow_sensors, FastSensorsBatch, 
 use mainboard::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin};
 
 const FAST_BATCH_SAMPLES: usize = 100;
+const FAST_SAMPLE_INTERVAL_MS: u64 = 1;
 
 pub struct SensorCollectionIo {
     pub adc: ADC1<'static>,
@@ -101,6 +102,7 @@ async fn collect_and_publish_fast(state: &mut SensorCollectionState) {
     let mut first_timestamp_ms = 0u32;
     let mut last_timestamp_ms = 0u32;
 
+    let mut ticker = Ticker::every(Duration::from_millis(FAST_SAMPLE_INTERVAL_MS));
     for index in 0..FAST_BATCH_SAMPLES {
         let timestamp_ms = timestamp_ms();
         if index == 0 {
@@ -112,9 +114,7 @@ async fn collect_and_publish_fast(state: &mut SensorCollectionState) {
         pressure_tank[index] = read_adc_raw(&mut state.adc, &mut state.pressure_tank);
         pressure_combustion[index] = read_adc_raw(&mut state.adc, &mut state.pressure_combustion);
 
-        if index + 1 < FAST_BATCH_SAMPLES {
-            Timer::after_millis(1).await;
-        }
+        ticker.next().await;
     }
 
     let tensometer_packet = FastAdcPacket::from_slice(
