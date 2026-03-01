@@ -7,10 +7,10 @@
     holding buffers for the duration of a data transfer."
 )]
 
-mod armed;
 mod config;
 mod mqtt;
 mod sensor_collection;
+mod sequencer;
 mod servo;
 mod temperature_collection;
 mod wifi;
@@ -148,11 +148,18 @@ async fn main(spawner: Spawner) {
         board.D2,
         esp_hal::gpio::InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
     );
-    armed::init_armed_state(&armed_pin);
+    sequencer::init_armed_state(&armed_pin);
+    let signal_light_i2c = acquire_i2c_bus();
     spawner
-        .spawn(armed::armed_monitor_task(armed_pin))
-        .expect("Failed to spawn armed_monitor_task");
-    info!("Armed monitor task spawned");
+        .spawn(sequencer::fire_sequencer_task())
+        .expect("Failed to spawn fire_sequencer_task");
+    spawner
+        .spawn(sequencer::state_sequencer_task(
+            armed_pin,
+            signal_light_i2c,
+        ))
+        .expect("Failed to spawn state_sequencer_task");
+    info!("State sequencer task spawned");
 
     SHUTDOWN_SIGNAL.wait().await;
     info!("Shutdown signal received");

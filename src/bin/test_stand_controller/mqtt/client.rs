@@ -1,5 +1,3 @@
-use core::sync::atomic::{AtomicU32, Ordering};
-
 use defmt::{debug, error, info, warn};
 use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
@@ -45,25 +43,6 @@ static MQTT_BUF: StaticCell<[u8; MQTT_BUFFER_SIZE]> = StaticCell::new();
 
 type AppClient<'a, 'b> = Client<'a, TcpSocket<'b>, BumpBuffer<'a>, 5, 2, 2>;
 
-static CURRENT_STATE_STATUS: AtomicU32 = AtomicU32::new(0);
-
-fn store_state_status(status: StateStatus) {
-    let v = match status {
-        StateStatus::Armed => 0,
-        StateStatus::Fire => 1,
-        StateStatus::PostFire => 2,
-    };
-    CURRENT_STATE_STATUS.store(v, Ordering::Relaxed);
-}
-
-fn load_state_status() -> StateStatus {
-    match CURRENT_STATE_STATUS.load(Ordering::Relaxed) {
-        1 => StateStatus::Fire,
-        2 => StateStatus::PostFire,
-        _ => StateStatus::Armed,
-    }
-}
-
 #[derive(Debug, Clone, Copy, defmt::Format)]
 enum AppMqttError {
     DnsLookupFailed,
@@ -74,37 +53,25 @@ enum AppMqttError {
 }
 
 struct AppCommandHandlers {
-    state: StateStatus,
     shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>,
 }
 
 impl AppCommandHandlers {
     fn new(shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>) -> Self {
-        Self {
-            state: load_state_status(),
-            shutdown_signal,
-        }
+        Self { shutdown_signal }
     }
 }
 
 impl StateCommandHandler for AppCommandHandlers {
     fn handle_state_command(&mut self, command: StateCommand) {
-        let new_state = match command {
-            StateCommand::Fire => StateStatus::Fire,
-            StateCommand::FireEnd => StateStatus::PostFire,
-            StateCommand::FireReset => StateStatus::Armed,
-        };
-        self.state = new_state;
-        store_state_status(new_state);
-        let _ = queue::publish_state_status(new_state);
-        queue::publish_command_log(new_state.as_log());
-        info!("MQTT command: state -> {}", new_state.as_str());
+        crate::sequencer::send_state_command(command);
+        info!("MQTT command: state -> {:?}", command);
     }
 }
 
 impl ServoCommandHandler for AppCommandHandlers {
     fn handle_servo_command(&mut self, command: ServoCommand) {
-        if self.state == StateStatus::Fire {
+        if crate::sequencer::load_state() == StateStatus::Fire {
             warn!("MQTT command ignored: cmd/servo in FIRE state");
             queue::publish_command_log("Servo command rejected: FIRE state");
             return;
@@ -193,9 +160,9 @@ async fn mqtt_connection_loop(
 }
 
 fn publish_state_on_connect() {
-    let _ = queue::publish_state_status(load_state_status());
+    crate::sequencer::republish_sequencer_state();
     crate::servo::republish_servo_state();
-    crate::armed::republish_armed_state();
+    crate::sequencer::republish_armed_state();
     queue::publish_command_log("Connected");
     info!("Published current state on connect");
 }

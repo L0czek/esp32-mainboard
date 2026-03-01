@@ -14,9 +14,11 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `src/bin/test_stand_controller/mqtt/commands/`: command decoding + handler traits + mock handlers.
 - `src/bin/test_stand_controller/mqtt/commands/shutdown.rs`: `SHUTDOWN` command decoder.
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
+- `src/bin/test_stand_controller/sequencer.rs`: state sequencer task (ARMED/FIRE/POSTFIRE state machine, signal light control, safety switch monitoring).
 - `src/bin/test_stand_controller/servo.rs`: servo controller task (MCPWM PWM, command channel, linear interpolation).
 - `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions).
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
+- `src/signal_light.rs`: PCF8574-based signalling light tower driver (active-low, 5 LEDs + buzzer).
 - `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
 
 ## Build, Test, and Development Commands
@@ -51,6 +53,13 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
   - Publishes `ServoSensorPacket` (current PWM ticks) on each interpolation step.
   - Config constants: `SERVO_MIN_PULSE_TICKS` (0°), `SERVO_MAX_PULSE_TICKS` (180°), `SERVO_OPEN_DEGREES`, `SERVO_CLOSED_DEGREES`, `SERVO_FULL_RANGE_MS`.
   - Boots to closed position. Mid-movement commands restart interpolation from current position.
+- State sequencer task manages ARMED/FIRE/POSTFIRE transitions with safety interlocks:
+  - Receives `StateCommand` (Fire/FireEnd/FireReset) from MQTT handler via `Channel<CriticalSectionRawMutex, StateCommand, 4>`.
+  - FIRE transition requires safety switch to be armed (GPIO21 high); rejected otherwise.
+  - Signal light (PCF8574 at 0x21): green=ARMED, buzzer+red→red=FIRE, green+red=POSTFIRE.
+  - Buzzer runs for 3 seconds on FIRE entry via non-blocking timer in the select loop.
+  - Monitors armed switch (GPIO21 D2) edge changes and publishes via MQTT.
+  - MQTT client delegates state management to sequencer channel (no inline state).
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
