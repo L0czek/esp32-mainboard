@@ -21,8 +21,8 @@ extern crate alloc;
 
 const ONESHOT_CONVERSION_MS: u64 = 20;
 const LED_STEP_MS: u64 = 150;
-const ADDRESS_HOLD_MS: u64 = 600;
-const LOOP_PAUSE_MS: u64 = 300;
+const ADDRESS_HOLD_MS: u64 = 5000;
+const LOOP_PAUSE_MS: u64 = 1000;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
