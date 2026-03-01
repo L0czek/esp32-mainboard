@@ -41,6 +41,10 @@ fn publish_armed_state(pin: &Input<'_>) {
     if crate::mqtt::publish_armed_sensor(packet).is_err() {
         warn!("Dropping armed packet: outbound queue full");
     }
+    crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital {
+        timestamp_ms: timestamp_ms(),
+        value,
+    });
 }
 
 fn timestamp_ms() -> u32 {
