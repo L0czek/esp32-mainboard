@@ -22,3 +22,5 @@ pub const SERVO_CLOSED_DEGREES: u16 = 1800;
 
 // Time for full 0-180 degree travel
 pub const SERVO_FULL_RANGE_MS: u64 = 5000;
+
+pub const BLACKBOX_BAUD_RATE: u32 = 921_600;
