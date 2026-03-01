@@ -8,8 +8,6 @@ use mainboard::tmp107::MAX_SENSORS;
 
 use crate::config::BLACKBOX_BAUD_RATE;
 
-const SYNC_BYTE: u8 = 0xAA;
-
 const ID_FAST_ADC: u8 = 0x01;
 const ID_SLOW_ADC: u8 = 0x02;
 const ID_TEMPERATURE: u8 = 0x03;
@@ -56,13 +54,12 @@ impl BlackboxWriter {
     }
 
     pub fn write_fast_adc(&mut self, ts: u32, tensometer: u16, tank: u16, combustion: u16) {
-        let mut buf = [0u8; 12];
-        buf[0] = SYNC_BYTE;
-        buf[1] = ID_FAST_ADC;
-        buf[2..6].copy_from_slice(&ts.to_le_bytes());
-        buf[6..8].copy_from_slice(&tensometer.to_le_bytes());
-        buf[8..10].copy_from_slice(&tank.to_le_bytes());
-        buf[10..12].copy_from_slice(&combustion.to_le_bytes());
+        let mut buf = [0u8; 11];
+        buf[0] = ID_FAST_ADC;
+        buf[1..5].copy_from_slice(&ts.to_le_bytes());
+        buf[5..7].copy_from_slice(&tensometer.to_le_bytes());
+        buf[7..9].copy_from_slice(&tank.to_le_bytes());
+        buf[9..11].copy_from_slice(&combustion.to_le_bytes());
         self.write_all(&buf);
     }
 
@@ -74,14 +71,13 @@ impl BlackboxWriter {
         boost: u16,
         starter: u16,
     ) {
-        let mut buf = [0u8; 14];
-        buf[0] = SYNC_BYTE;
-        buf[1] = ID_SLOW_ADC;
-        buf[2..6].copy_from_slice(&ts.to_le_bytes());
-        buf[6..8].copy_from_slice(&bat_stand.to_le_bytes());
-        buf[8..10].copy_from_slice(&bat_comp.to_le_bytes());
-        buf[10..12].copy_from_slice(&boost.to_le_bytes());
-        buf[12..14].copy_from_slice(&starter.to_le_bytes());
+        let mut buf = [0u8; 13];
+        buf[0] = ID_SLOW_ADC;
+        buf[1..5].copy_from_slice(&ts.to_le_bytes());
+        buf[5..7].copy_from_slice(&bat_stand.to_le_bytes());
+        buf[7..9].copy_from_slice(&bat_comp.to_le_bytes());
+        buf[9..11].copy_from_slice(&boost.to_le_bytes());
+        buf[11..13].copy_from_slice(&starter.to_le_bytes());
         self.write_all(&buf);
     }
 
@@ -93,14 +89,13 @@ impl BlackboxWriter {
                 values,
             } => {
                 let n = *count as usize;
-                let total = 7 + n * 2;
-                let mut buf = [0u8; 7 + MAX_SENSORS * 2];
-                buf[0] = SYNC_BYTE;
-                buf[1] = ID_TEMPERATURE;
-                buf[2] = *count;
-                buf[3..7].copy_from_slice(&timestamp_ms.to_le_bytes());
+                let total = 6 + n * 2;
+                let mut buf = [0u8; 6 + MAX_SENSORS * 2];
+                buf[0] = ID_TEMPERATURE;
+                buf[1] = *count;
+                buf[2..6].copy_from_slice(&timestamp_ms.to_le_bytes());
                 for (i, val) in values.iter().enumerate().take(n) {
-                    let off = 7 + i * 2;
+                    let off = 6 + i * 2;
                     buf[off..off + 2].copy_from_slice(&val.to_le_bytes());
                 }
                 self.write_all(&buf[..total]);
@@ -109,22 +104,20 @@ impl BlackboxWriter {
                 timestamp_ms,
                 value,
             } => {
-                let mut buf = [0u8; 7];
-                buf[0] = SYNC_BYTE;
-                buf[1] = ID_DIGITAL;
-                buf[2..6].copy_from_slice(&timestamp_ms.to_le_bytes());
-                buf[6] = *value;
+                let mut buf = [0u8; 6];
+                buf[0] = ID_DIGITAL;
+                buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
+                buf[5] = *value;
                 self.write_all(&buf);
             }
             BlackboxPacket::Servo {
                 timestamp_ms,
                 ticks,
             } => {
-                let mut buf = [0u8; 8];
-                buf[0] = SYNC_BYTE;
-                buf[1] = ID_SERVO;
-                buf[2..6].copy_from_slice(&timestamp_ms.to_le_bytes());
-                buf[6..8].copy_from_slice(&ticks.to_le_bytes());
+                let mut buf = [0u8; 7];
+                buf[0] = ID_SERVO;
+                buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
+                buf[5..7].copy_from_slice(&ticks.to_le_bytes());
                 self.write_all(&buf);
             }
         }

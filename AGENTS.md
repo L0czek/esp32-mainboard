@@ -62,10 +62,10 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - Blackbox UART data logger streams all sensor data over UART1 TX (D3/GPIO20) to
   an external recording device for disaster-proof data retention. Operates in
   parallel with MQTT — both receive the same data independently.
-  - Packet format: `SYNC(0xAA) + ID(1) + payload` with fixed or self-describing lengths.
-  - Packet IDs: 0x01 Fast ADC (3ch, 12B), 0x02 Slow ADC (4ch, 14B), 0x03 Temperature
-    (variable, 7+2*count B), 0x04 Digital (7B), 0x05 Servo (8B), 0x06 Log (variable),
-    0x07 Heartbeat (6B). All multi-byte values little-endian.
+  - Packet format: `ID(1) + payload` with fixed or self-describing lengths.
+  - Packet IDs: 0x01 Fast ADC (3ch, 11B), 0x02 Slow ADC (4ch, 13B), 0x03 Temperature
+    (variable, 6+2*count B), 0x04 Digital (6B), 0x05 Servo (7B). All multi-byte values
+    little-endian.
   - UART1 TX owned by `sensor_collection_task` (blocking writes to hardware FIFO).
     Other tasks send via `BLACKBOX_CHANNEL` (embassy_sync Channel, capacity 32);
     sensor task drains it every ~10ms.
