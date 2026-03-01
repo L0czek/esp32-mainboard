@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use bq24296m::WatchdogTimer;
-use defmt::{error, info};
+use defmt::{debug, error, info};
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -198,7 +198,7 @@ pub async fn power_controller_task(config: PowerControllerConfig, io: PowerContr
         if let Err(e) = pctl.reset_watchdog() {
             error!("Failed to reset watchdog: {:?}", e);
         } else {
-            info!("Charger watchdog reset");
+            debug!("Charger watchdog reset");
         }
     }
 }

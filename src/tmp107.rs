@@ -58,12 +58,6 @@ const TEMP_LIMIT_MAX: u16 = 0x7FFC;
 /// Minimum legal alert threshold.
 const TEMP_LIMIT_MIN: u16 = 0x8000;
 
-/// One temperature LSB in the 16-bit register encoding.
-const TEMP_RAW_LSB: u16 = 0x0004;
-
-/// Any low limit other than TEMP_LIMIT_MIN keeps the alert block enabled.
-const LED_ON_LOW_LIMIT: u16 = TEMP_LIMIT_MAX - TEMP_RAW_LSB;
-
 /// Timeout for a single sensor response (individual read).
 const READ_TIMEOUT_MS: u64 = 10;
 
@@ -80,6 +74,7 @@ pub enum Tmp107Error {
     BufferTooSmall,
     Timeout,
     NoSensorsFound,
+    Other(&'static str),
 }
 
 pub struct Tmp107 {
@@ -106,8 +101,8 @@ impl Tmp107 {
         };
 
         loop {
-            match driver.discover_sensors().await {
-                Ok(()) => {
+            match driver.address_initialize().await {
+                Ok(_) => {
                     break;
                 }
                 Err(_) => {
@@ -151,6 +146,24 @@ impl Tmp107 {
             .await
     }
 
+    pub async fn set_alert_polarity(
+        &mut self,
+        alert: u8,
+        polarity: bool,
+    ) -> Result<(), Tmp107Error> {
+        let config_bit = match alert {
+            1 => CONFIG_POL1_BIT,
+            2 => CONFIG_POL2_BIT,
+            _ => return Err(Tmp107Error::Other("Invalid alert number")),
+        };
+
+        self.write_global_config(
+            if polarity { config_bit } else { 0 },
+            if polarity { 0 } else { config_bit },
+        )
+        .await
+    }
+
     /// Set ALERT1/ALERT2 LEDs on a single sensor using per-sensor limit registers.
     /// All sensors keep the same shared config register value.
     pub async fn set_leds(
@@ -177,8 +190,7 @@ impl Tmp107 {
     }
 
     // -- Address discovery --
-
-    async fn discover_sensors(&mut self) -> Result<(), Tmp107Error> {
+    pub async fn address_initialize(&mut self) -> Result<u8, Tmp107Error> {
         let addr_assign = Self::addr_init_byte(0x01);
         let bytes = [CALIBRATION_BYTE, ADDR_INIT_COMMAND, addr_assign];
 
@@ -216,7 +228,7 @@ impl Tmp107 {
 
         self.sensor_count = count;
         info!("TMP107 init complete: {} sensors", count);
-        Ok(())
+        Ok(count)
     }
 
     async fn write_global_config(
@@ -224,8 +236,8 @@ impl Tmp107 {
         set_bits: u16,
         clear_bits: u16,
     ) -> Result<(), Tmp107Error> {
-        let config = (self.config_register | set_bits) & !clear_bits;
-        self.config_register = config & !CONFIG_OS_BIT;
+        let config = (self.config_register | set_bits) & (!clear_bits);
+        self.config_register = config & !CONFIG_OS_BIT; // do not write One-shot bit to remembered config
         self.global_write(self.sensor_count, CONFIG_REGISTER, config)
             .await
     }
@@ -237,15 +249,26 @@ impl Tmp107 {
         low_register: u8,
         led_on: bool,
     ) -> Result<(), Tmp107Error> {
-        self.individual_write(address, high_register, TEMP_LIMIT_MAX)
-            .await?;
-        let low_limit = if led_on {
-            LED_ON_LOW_LIMIT
-        } else {
-            TEMP_LIMIT_MIN
-        };
-        self.individual_write(address, low_register, low_limit)
-            .await
+        self.individual_write(
+            address,
+            high_register,
+            if led_on {
+                TEMP_LIMIT_MIN
+            } else {
+                TEMP_LIMIT_MAX
+            },
+        )
+        .await?;
+        self.individual_write(
+            address,
+            low_register,
+            if led_on {
+                TEMP_LIMIT_MIN
+            } else {
+                TEMP_LIMIT_MAX
+            },
+        )
+        .await
     }
 
     // -- Protocol helpers --

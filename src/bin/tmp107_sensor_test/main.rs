@@ -14,12 +14,11 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::Uart;
 use mainboard::board::Board;
 use mainboard::create_board;
-use mainboard::tmp107::{Tmp107, Tmp107Error, MAX_SENSORS};
+use mainboard::tmp107::{Tmp107, Tmp107Error, MAX_SENSORS, ONESHOT_CONVERSION_MS};
 use panic_rtt_target as _;
 
 extern crate alloc;
 
-const ONESHOT_CONVERSION_MS: u64 = 20;
 const LED_STEP_MS: u64 = 150;
 const ADDRESS_HOLD_MS: u64 = 5000;
 const LOOP_PAUSE_MS: u64 = 1000;
@@ -82,7 +81,7 @@ async fn main(_spawner: Spawner) -> ! {
     }
 
     info!(
-        "TMP107 sensor test ready: {} sensors discovered",
+        "TMP107 sensors address initialize: {} sensors discovered",
         driver.sensor_count()
     );
 
@@ -97,6 +96,18 @@ async fn main(_spawner: Spawner) -> ! {
             warn!("TMP107 one-shot trigger failed: {:?}", error);
             Timer::after_millis(LOOP_PAUSE_MS).await;
             continue;
+        }
+
+        match driver.address_initialize().await {
+            Ok(count) => {
+                info!(
+                    "TMP107 sensors address initialize: {} sensors discovered",
+                    count
+                );
+            }
+            Err(error) => {
+                warn!("TMP107 sensors address initialize error: {:?}", error);
+            }
         }
 
         Timer::after_millis(ONESHOT_CONVERSION_MS).await;
@@ -141,19 +152,24 @@ async fn blink_led_pattern(driver: &mut Tmp107) -> Result<(), Tmp107Error> {
     for address in 1..=driver.sensor_count() {
         info!("LED pattern: sensor {} ALERT1", address);
         driver.set_leds(address, true, false).await?;
+        driver.trigger_one_shot().await?;
         Timer::after_millis(LED_STEP_MS).await;
         driver.set_leds(address, false, false).await?;
+        driver.trigger_one_shot().await?;
     }
 
     for address in (1..=driver.sensor_count()).rev() {
         info!("LED pattern: sensor {} ALERT2", address);
         driver.set_leds(address, false, true).await?;
+        driver.trigger_one_shot().await?;
         Timer::after_millis(LED_STEP_MS).await;
         driver.set_leds(address, false, false).await?;
+        driver.trigger_one_shot().await?;
     }
 
     info!("LED pattern: address bits");
     driver.show_address_leds().await?;
+    driver.trigger_one_shot().await?;
     Timer::after_millis(ADDRESS_HOLD_MS).await;
     clear_leds(driver).await
 }
@@ -161,6 +177,7 @@ async fn blink_led_pattern(driver: &mut Tmp107) -> Result<(), Tmp107Error> {
 async fn clear_leds(driver: &mut Tmp107) -> Result<(), Tmp107Error> {
     for address in 1..=driver.sensor_count() {
         driver.set_leds(address, false, false).await?;
+        driver.trigger_one_shot().await?;
     }
 
     Ok(())

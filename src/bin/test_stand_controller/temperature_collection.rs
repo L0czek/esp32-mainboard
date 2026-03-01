@@ -39,7 +39,11 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
         }
     };
 
-    let sensor_count = driver.sensor_count() as usize;
+    // Enabled LED connected to ALERT 1. By default we set polarity of both to "true"
+    if let Err(e) = driver.set_alert_polarity(1, false).await {
+        error!("TMP107 set alert polarity failed: {:?}", e);
+        return;
+    }
 
     if let Err(e) = driver.shutdown().await {
         error!("TMP107 shutdown failed: {:?}", e);
@@ -48,7 +52,9 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
 
     info!(
         "Temperature collection: {} sensors, {}ms interval, batch {}",
-        sensor_count, TEMP_COLLECTION_INTERVAL_MS, TEMP_BATCH_SIZE,
+        driver.sensor_count(),
+        TEMP_COLLECTION_INTERVAL_MS,
+        TEMP_BATCH_SIZE,
     );
 
     let mut ticker = Ticker::every(Duration::from_millis(TEMP_COLLECTION_INTERVAL_MS));
@@ -74,10 +80,6 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
                 continue;
             }
         };
-
-        if let Err(e) = driver.show_address_leds().await {
-            warn!("TMP107 show address LEDs failed: {:?}", e);
-        }
 
         let now = Instant::now().as_millis() as u32;
 
