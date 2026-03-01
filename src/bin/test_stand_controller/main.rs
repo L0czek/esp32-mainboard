@@ -96,6 +96,14 @@ async fn main(spawner: Spawner) {
         boost_converter_enable: board.BoostEn,
     };
     let power = spawn_power_controller(&spawner, power_config, power_io);
+
+    match power.set_boost_converter(true).await {
+        PowerResponse::Ok => info!("Boost converter enabled"),
+        PowerResponse::Err(e) => {
+            info!("Failed to enable boost converter: {:?}", e)
+        }
+    }
+
     let power_receiver = power
         .state_receiver()
         .expect("Failed to get power state receiver");
