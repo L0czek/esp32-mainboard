@@ -13,6 +13,7 @@ use mainboard::signal_light::{SignalLight, SignalLightConfig};
 
 const FIRE_TRIGGER_BYTE: u8 = 0x00;
 
+use crate::camera_shutter;
 use crate::mqtt::commands::state::StateCommand;
 use crate::mqtt::queue;
 use crate::mqtt::sensors::digital::ArmedPacket;
@@ -241,6 +242,7 @@ fn handle_command(
                 buzzer: true,
                 ..SignalLightConfig::default()
             });
+            camera_shutter::trigger_shutter();
             FIRE_ACTIVATE.signal(());
         }
         StateCommand::FireEnd => {
@@ -252,6 +254,7 @@ fn handle_command(
                 return;
             }
             FIRE_CANCEL.signal(());
+            camera_shutter::trigger_shutter();
             transition_state(state, StateStatus::PostFire);
             set_light(light, SignalLightConfig {
                 green: true,

@@ -7,6 +7,7 @@
     holding buffers for the duration of a data transfer."
 )]
 
+mod camera_shutter;
 mod config;
 mod mqtt;
 mod sensor_collection;
@@ -151,6 +152,16 @@ async fn main(spawner: Spawner) {
         .spawn(servo::servo_controller_task(peripherals.MCPWM0, board.D1))
         .expect("Failed to spawn servo_controller_task");
     info!("Servo controller task spawned");
+
+    let shutter_pin = esp_hal::gpio::Output::new(
+        board.D4,
+        esp_hal::gpio::Level::Low,
+        esp_hal::gpio::OutputConfig::default(),
+    );
+    spawner
+        .spawn(camera_shutter::camera_shutter_task(shutter_pin))
+        .expect("Failed to spawn camera_shutter_task");
+    info!("Camera shutter task spawned");
 
     let armed_pin = esp_hal::gpio::Input::new(
         board.D2,
