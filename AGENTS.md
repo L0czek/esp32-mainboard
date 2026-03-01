@@ -14,7 +14,8 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/bin/test_stand_controller/mqtt/commands/shutdown.rs`: `SHUTDOWN` command decoder.
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
 - `src/bin/test_stand_controller/servo.rs`: servo controller task (MCPWM PWM, command channel, linear interpolation).
-- `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions).
+- `src/bin/test_stand_controller/blackbox.rs`: UART1 blackbox data logger — streams sensor data to external recording device.
+- `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions, blackbox baud rate).
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
 - `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
 
@@ -58,6 +59,18 @@ Current work scope is `src/bin/test_stand_controller/` only.
   `TEMP_COLLECTION_INTERVAL_MS` (50), `TEMP_BATCH_SIZE` (20), `ONESHOT_CONVERSION_MS` (20).
   Connected via UART0 (GPIO16 TX, GPIO17 RX) with D0 (GPIO23) as half-duplex
   transceiver direction, driven by UART DTR in hardware RS485 mode.
+- Blackbox UART data logger streams all sensor data over UART1 TX (D3/GPIO20) to
+  an external recording device for disaster-proof data retention. Operates in
+  parallel with MQTT — both receive the same data independently.
+  - Packet format: `SYNC(0xAA) + ID(1) + payload` with fixed or self-describing lengths.
+  - Packet IDs: 0x01 Fast ADC (3ch, 12B), 0x02 Slow ADC (4ch, 14B), 0x03 Temperature
+    (variable, 7+2*count B), 0x04 Digital (7B), 0x05 Servo (8B), 0x06 Log (variable),
+    0x07 Heartbeat (6B). All multi-byte values little-endian.
+  - UART1 TX owned by `sensor_collection_task` (blocking writes to hardware FIFO).
+    Other tasks send via `BLACKBOX_CHANNEL` (embassy_sync Channel, capacity 32);
+    sensor task drains it every ~10ms.
+  - Configurable baud rate via `BLACKBOX_BAUD_RATE` in config.rs (default 921600).
+  - Design doc: `docs/plans/2026-03-01-blackbox-uart-design.md`.
 
 ## Coding Style & Naming Conventions
 Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiomatic Rust naming:
