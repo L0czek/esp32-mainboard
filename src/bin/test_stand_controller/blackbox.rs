@@ -1,7 +1,6 @@
 use defmt::warn;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::Instant;
 use esp_hal::uart::{Config, UartTx};
 use esp_hal::Blocking;
 use mainboard::board::D3Pin;
@@ -16,8 +15,6 @@ const ID_SLOW_ADC: u8 = 0x02;
 const ID_TEMPERATURE: u8 = 0x03;
 const ID_DIGITAL: u8 = 0x04;
 const ID_SERVO: u8 = 0x05;
-const ID_LOG: u8 = 0x06;
-const ID_HEARTBEAT: u8 = 0x07;
 
 const CHANNEL_CAPACITY: usize = 32;
 
@@ -37,10 +34,6 @@ pub enum BlackboxPacket {
     Servo {
         timestamp_ms: u32,
         ticks: u16,
-    },
-    Log {
-        len: u8,
-        data: [u8; 64],
     },
 }
 
@@ -92,15 +85,6 @@ impl BlackboxWriter {
         self.write_all(&buf);
     }
 
-    pub fn write_heartbeat(&mut self) {
-        let mut buf = [0u8; 6];
-        buf[0] = SYNC_BYTE;
-        buf[1] = ID_HEARTBEAT;
-        let ts = Instant::now().as_millis() as u32;
-        buf[2..6].copy_from_slice(&ts.to_le_bytes());
-        self.write_all(&buf);
-    }
-
     pub fn write_packet(&mut self, packet: &BlackboxPacket) {
         match packet {
             BlackboxPacket::Temperature {
@@ -115,9 +99,9 @@ impl BlackboxWriter {
                 buf[1] = ID_TEMPERATURE;
                 buf[2] = *count;
                 buf[3..7].copy_from_slice(&timestamp_ms.to_le_bytes());
-                for i in 0..n {
+                for (i, val) in values.iter().enumerate().take(n) {
                     let off = 7 + i * 2;
-                    buf[off..off + 2].copy_from_slice(&values[i].to_le_bytes());
+                    buf[off..off + 2].copy_from_slice(&val.to_le_bytes());
                 }
                 self.write_all(&buf[..total]);
             }
@@ -143,16 +127,6 @@ impl BlackboxWriter {
                 buf[6..8].copy_from_slice(&ticks.to_le_bytes());
                 self.write_all(&buf);
             }
-            BlackboxPacket::Log { len, data } => {
-                let n = *len as usize;
-                let total = 3 + n;
-                let mut buf = [0u8; 3 + 64];
-                buf[0] = SYNC_BYTE;
-                buf[1] = ID_LOG;
-                buf[2] = *len;
-                buf[3..3 + n].copy_from_slice(&data[..n]);
-                self.write_all(&buf[..total]);
-            }
         }
     }
 
@@ -167,7 +141,10 @@ impl BlackboxWriter {
         while !remaining.is_empty() {
             match self.tx.write(remaining) {
                 Ok(n) => remaining = &remaining[n..],
-                Err(_) => break,
+                Err(e) => {
+                    warn!("Blackbox UART write error: {:?}", e);
+                    break;
+                }
             }
         }
     }

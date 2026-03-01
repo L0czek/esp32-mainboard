@@ -38,50 +38,42 @@ struct SensorCollectionState {
 }
 
 impl SensorCollectionState {
-    fn new(
-        adc: ADC1<'static>,
-        tensometer: A0Pin,
-        pressure_tank: A1Pin,
-        pressure_combustion: A2Pin,
-        starter_sense: A3Pin,
-        battery_stand: A4Pin,
-        battery_computer: BatVolPin,
-        boost_voltage: BoostVolPin,
-    ) -> Self {
+    fn new(io: SensorCollectionIo) -> (Self, crate::blackbox::BlackboxWriter) {
+        let blackbox = crate::blackbox::BlackboxWriter::new(io.uart1, io.blackbox_tx_pin);
         let mut config = AdcConfig::new();
 
         let tensometer = config.enable_pin_with_cal::<A0Pin, AdcCalBasic<ADC1<'static>>>(
-            tensometer,
+            io.tensometer,
             Attenuation::_0dB,
         );
         let pressure_tank = config.enable_pin_with_cal::<A1Pin, AdcCalBasic<ADC1<'static>>>(
-            pressure_tank,
+            io.pressure_tank,
             Attenuation::_0dB,
         );
         let pressure_combustion = config.enable_pin_with_cal::<A2Pin, AdcCalBasic<ADC1<'static>>>(
-            pressure_combustion,
+            io.pressure_combustion,
             Attenuation::_0dB,
         );
         let starter_sense = config.enable_pin_with_cal::<A3Pin, AdcCalBasic<ADC1<'static>>>(
-            starter_sense,
+            io.starter_sense,
             Attenuation::_0dB,
         );
         let battery_stand = config.enable_pin_with_cal::<A4Pin, AdcCalBasic<ADC1<'static>>>(
-            battery_stand,
+            io.battery_stand,
             Attenuation::_0dB,
         );
         let battery_computer = config.enable_pin_with_cal::<BatVolPin, AdcCalBasic<ADC1<'static>>>(
-            battery_computer,
+            io.battery_computer,
             Attenuation::_0dB,
         );
         let boost_voltage = config.enable_pin_with_cal::<BoostVolPin, AdcCalBasic<ADC1<'static>>>(
-            boost_voltage,
+            io.boost_voltage,
             Attenuation::_0dB,
         );
 
-        let adc = Adc::new(adc, config);
+        let adc = Adc::new(io.adc, config);
 
-        Self {
+        let state = Self {
             adc,
             tensometer,
             pressure_tank,
@@ -90,23 +82,14 @@ impl SensorCollectionState {
             battery_stand,
             battery_computer,
             boost_voltage,
-        }
+        };
+        (state, blackbox)
     }
 }
 
 #[embassy_executor::task]
 pub async fn sensor_collection_task(io: SensorCollectionIo) {
-    let mut blackbox = crate::blackbox::BlackboxWriter::new(io.uart1, io.blackbox_tx_pin);
-    let mut state = SensorCollectionState::new(
-        io.adc,
-        io.tensometer,
-        io.pressure_tank,
-        io.pressure_combustion,
-        io.starter_sense,
-        io.battery_stand,
-        io.battery_computer,
-        io.boost_voltage,
-    );
+    let (mut state, mut blackbox) = SensorCollectionState::new(io);
 
     loop {
         collect_and_publish_fast(&mut state, &mut blackbox).await;

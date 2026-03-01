@@ -34,15 +34,16 @@ pub fn republish_armed_state() {
 
 fn publish_armed_state(pin: &Input<'_>) {
     let value = pin.is_high() as u8;
+    let ts = timestamp_ms();
     LAST_ARMED_VALUE.store(value, Ordering::Relaxed);
-    let packet = ArmedPacket::new(timestamp_ms(), value);
+    let packet = ArmedPacket::new(ts, value);
 
     info!("Armed switch: {}", value);
     if crate::mqtt::publish_armed_sensor(packet).is_err() {
         warn!("Dropping armed packet: outbound queue full");
     }
     crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital {
-        timestamp_ms: timestamp_ms(),
+        timestamp_ms: ts,
         value,
     });
 }
