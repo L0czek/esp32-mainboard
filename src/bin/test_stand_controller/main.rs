@@ -150,8 +150,9 @@ async fn main(spawner: Spawner) {
     );
     sequencer::init_armed_state(&armed_pin);
     let signal_light_i2c = acquire_i2c_bus();
+    let fire_trigger_i2c = acquire_i2c_bus();
     spawner
-        .spawn(sequencer::fire_sequencer_task())
+        .spawn(sequencer::fire_sequencer_task(fire_trigger_i2c))
         .expect("Failed to spawn fire_sequencer_task");
     spawner
         .spawn(sequencer::state_sequencer_task(

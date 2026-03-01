@@ -3,6 +3,7 @@
 
 pub mod board;
 pub mod channel;
+pub mod fire_trigger;
 pub mod power;
 pub mod signal_light;
 pub mod tasks;

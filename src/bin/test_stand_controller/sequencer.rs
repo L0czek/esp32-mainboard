@@ -8,7 +8,10 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer};
 use esp_hal::gpio::Input;
 use mainboard::board::I2cType;
+use mainboard::fire_trigger::FireTrigger;
 use mainboard::signal_light::{SignalLight, SignalLightConfig};
+
+const FIRE_TRIGGER_BYTE: u8 = 0x00;
 
 use crate::mqtt::commands::state::StateCommand;
 use crate::mqtt::queue;
@@ -114,7 +117,21 @@ fn set_light(
 }
 
 #[embassy_executor::task]
-pub async fn fire_sequencer_task() {
+pub async fn fire_sequencer_task(fire_trigger_i2c: I2cType) {
+    let address =
+        pcf857x::SlaveAddr::Alternative(false, false, false);
+    let mut trigger = match FireTrigger::new(
+        fire_trigger_i2c,
+        address,
+        FIRE_TRIGGER_BYTE,
+    ) {
+        Ok(t) => t,
+        Err(_e) => {
+            warn!("Failed to initialize fire trigger");
+            return;
+        }
+    };
+
     loop {
         FIRE_ACTIVATE.wait().await;
         FIRE_CANCEL.reset();
@@ -125,12 +142,19 @@ pub async fn fire_sequencer_task() {
         .await
         {
             Either::First(()) => {
+                if let Err(_e) = trigger.trigger() {
+                    warn!("Failed to activate fire trigger");
+                }
                 let msg = SequencerMessage::BuzzerComplete;
                 if SEQUENCER_CHANNEL.try_send(msg).is_err() {
                     warn!("Failed to send buzzer complete");
                 }
             }
-            Either::Second(()) => {}
+            Either::Second(()) => {
+                if let Err(_e) = trigger.abort() {
+                    warn!("Failed to abort fire trigger");
+                }
+            }
         }
     }
 }
