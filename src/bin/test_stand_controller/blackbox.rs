@@ -21,11 +21,8 @@ const ID_HEARTBEAT: u8 = 0x07;
 
 const CHANNEL_CAPACITY: usize = 32;
 
-static BLACKBOX_CHANNEL: Channel<
-    CriticalSectionRawMutex,
-    BlackboxPacket,
-    CHANNEL_CAPACITY,
-> = Channel::new();
+static BLACKBOX_CHANNEL: Channel<CriticalSectionRawMutex, BlackboxPacket, CHANNEL_CAPACITY> =
+    Channel::new();
 
 pub enum BlackboxPacket {
     Temperature {
@@ -58,26 +55,14 @@ pub struct BlackboxWriter {
 }
 
 impl BlackboxWriter {
-    pub fn new(
-        uart: esp_hal::peripherals::UART1<'static>,
-        pin: D3Pin,
-    ) -> Self {
-        let tx = UartTx::new(
-            uart,
-            Config::default().with_baudrate(BLACKBOX_BAUD_RATE),
-        )
-        .expect("UART1 blackbox init failed")
-        .with_tx(pin);
+    pub fn new(uart: esp_hal::peripherals::UART1<'static>, pin: D3Pin) -> Self {
+        let tx = UartTx::new(uart, Config::default().with_baudrate(BLACKBOX_BAUD_RATE))
+            .expect("UART1 blackbox init failed")
+            .with_tx(pin);
         Self { tx }
     }
 
-    pub fn write_fast_adc(
-        &mut self,
-        ts: u32,
-        tensometer: u16,
-        tank: u16,
-        combustion: u16,
-    ) {
+    pub fn write_fast_adc(&mut self, ts: u32, tensometer: u16, tank: u16, combustion: u16) {
         let mut buf = [0u8; 12];
         buf[0] = SYNC_BYTE;
         buf[1] = ID_FAST_ADC;
@@ -132,8 +117,7 @@ impl BlackboxWriter {
                 buf[3..7].copy_from_slice(&timestamp_ms.to_le_bytes());
                 for i in 0..n {
                     let off = 7 + i * 2;
-                    buf[off..off + 2]
-                        .copy_from_slice(&values[i].to_le_bytes());
+                    buf[off..off + 2].copy_from_slice(&values[i].to_le_bytes());
                 }
                 self.write_all(&buf[..total]);
             }

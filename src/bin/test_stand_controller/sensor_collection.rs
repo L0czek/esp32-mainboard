@@ -96,10 +96,7 @@ impl SensorCollectionState {
 
 #[embassy_executor::task]
 pub async fn sensor_collection_task(io: SensorCollectionIo) {
-    let mut blackbox = crate::blackbox::BlackboxWriter::new(
-        io.uart1,
-        io.blackbox_tx_pin,
-    );
+    let mut blackbox = crate::blackbox::BlackboxWriter::new(io.uart1, io.blackbox_tx_pin);
     let mut state = SensorCollectionState::new(
         io.adc,
         io.tensometer,
