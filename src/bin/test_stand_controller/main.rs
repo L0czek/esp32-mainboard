@@ -8,6 +8,7 @@
 )]
 
 mod armed;
+mod blackbox;
 mod config;
 mod mqtt;
 mod sensor_collection;
@@ -87,6 +88,8 @@ async fn main(spawner: Spawner) {
         battery_stand: board.A4,
         battery_computer: board.BatVol,
         boost_voltage: board.BoostVol,
+        uart1: peripherals.UART1,
+        blackbox_tx_pin: board.D3,
     };
 
     let power_config = Default::default();

@@ -22,6 +22,8 @@ pub struct SensorCollectionIo {
     pub battery_stand: A4Pin,
     pub battery_computer: BatVolPin,
     pub boost_voltage: BoostVolPin,
+    pub uart1: esp_hal::peripherals::UART1<'static>,
+    pub blackbox_tx_pin: mainboard::board::D3Pin,
 }
 
 struct SensorCollectionState {
