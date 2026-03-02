@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) {
         battery_computer: board.BatVol,
         boost_voltage: board.BoostVol,
         uart1: peripherals.UART1,
-        blackbox_tx_pin: board.D3,
+        blackbox_tx_pin: board.D4,
     };
 
     let power_config = Default::default();

@@ -4,7 +4,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use esp_hal::uart::{Config, UartTx};
 use esp_hal::Blocking;
-use mainboard::board::D3Pin;
+use mainboard::board::D4Pin;
 
 const ID_FAST_ADC: u8 = 0x01;
 const ID_SLOW_ADC: u8 = 0x02;
@@ -44,7 +44,7 @@ pub struct BlackboxWriter {
 }
 
 impl BlackboxWriter {
-    pub fn new(uart: esp_hal::peripherals::UART1<'static>, pin: D3Pin) -> Self {
+    pub fn new(uart: esp_hal::peripherals::UART1<'static>, pin: D4Pin) -> Self {
         let tx = UartTx::new(uart, Config::default().with_baudrate(BLACKBOX_BAUD_RATE))
             .expect("UART1 blackbox init failed")
             .with_tx(pin);
