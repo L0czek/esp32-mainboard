@@ -126,17 +126,13 @@ impl BlackboxWriter {
         let mut remaining = buf;
         while !remaining.is_empty() {
             if !self.tx.write_ready() {
-                panic!("Blackbox UART TX FIFO full");
+                warn!("Blackbox UART FIFO full, busy looping to write packet");
             }
 
             let written = self
                 .tx
                 .write(remaining)
                 .expect("Blackbox UART write failed");
-
-            if written == 0 {
-                panic!("Blackbox UART write returned 0 with pending data");
-            }
 
             remaining = &remaining[written..];
         }
