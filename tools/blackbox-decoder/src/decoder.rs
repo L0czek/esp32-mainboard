@@ -2,10 +2,7 @@ use std::io::Read;
 
 use anyhow::{Context, Result, bail};
 
-use crate::packet::{
-    ID_DIGITAL, ID_FAST_ADC, ID_PADDING, ID_SERVO, ID_SLOW_ADC, ID_TEMPERATURE, MAX_TEMP_SENSORS,
-    PacketData,
-};
+use crate::packet::{ID_DIGITAL, ID_FAST_ADC, ID_PADDING, ID_SERVO, ID_SLOW_ADC, ID_TEMPERATURE, PacketData};
 
 pub struct PacketDecoder<R: Read> {
     reader: R,
@@ -102,11 +99,13 @@ impl<R: Read> PacketDecoder<R> {
     }
 
     fn decode_slow_adc(&mut self) -> Result<PacketData> {
+        let timestamp_ms = self.read_u32_le()?;
         let bat_stand = self.read_u16_le()?;
         let bat_comp = self.read_u16_le()?;
         let boost = self.read_u16_le()?;
         let starter = self.read_u16_le()?;
         Ok(PacketData::SlowAdc {
+            timestamp_ms,
             bat_stand,
             bat_comp,
             boost,
@@ -115,28 +114,31 @@ impl<R: Read> PacketDecoder<R> {
     }
 
     fn decode_temperature(&mut self) -> Result<PacketData> {
-        let count = self.read_u8()?;
-        if count > MAX_TEMP_SENSORS {
-            bail!(
-                "temperature sensor count {count} exceeds \
-                 maximum {MAX_TEMP_SENSORS} at offset {}",
-                self.offset - 1,
-            );
-        }
-        let mut sensors = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            sensors.push(self.read_u16_le()?);
-        }
-        Ok(PacketData::Temperature { sensors })
+        let timestamp_ms = self.read_u32_le()?;
+        let sensor_id = self.read_u8()?;
+        let value = self.read_u16_le()?;
+        Ok(PacketData::Temperature {
+            timestamp_ms,
+            sensor_id,
+            value,
+        })
     }
 
     fn decode_digital(&mut self) -> Result<PacketData> {
+        let timestamp_ms = self.read_u32_le()?;
         let value = self.read_u8()?;
-        Ok(PacketData::Digital { value })
+        Ok(PacketData::Digital {
+            timestamp_ms,
+            value,
+        })
     }
 
     fn decode_servo(&mut self) -> Result<PacketData> {
+        let timestamp_ms = self.read_u32_le()?;
         let ticks = self.read_u16_le()?;
-        Ok(PacketData::Servo { ticks })
+        Ok(PacketData::Servo {
+            timestamp_ms,
+            ticks,
+        })
     }
 }
