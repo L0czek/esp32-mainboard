@@ -49,28 +49,27 @@ All packets: `ID(1) + PAYLOAD(variable)`
 | ID   | Name           | Payload                                                              | Total bytes     |
 |------|----------------|----------------------------------------------------------------------|-----------------|
 | 0x01 | Fast ADC (3ch) | ts:u32 + tensometer:u16 + tank:u16 + combustion:u16                 | 11              |
-| 0x02 | Slow ADC (4ch) | bat_stand:u16 + bat_comp:u16 + boost:u16 + starter:u16              | 9               |
-| 0x03 | Temperature    | count:u8 + [raw:u16; count]                                         | 2 + 2*count     |
-| 0x04 | Digital        | value:u8                                                            | 2               |
-| 0x05 | Servo          | ticks:u16                                                           | 3               |
+| 0x02 | Slow ADC (4ch) | ts:u32 + bat_stand:u16 + bat_comp:u16 + boost:u16 + starter:u16     | 13              |
+| 0x03 | Temperature    | ts:u32 + sensor_id:u8 + raw:u16                                     | 8               |
+| 0x04 | Digital        | ts:u32 + value:u8                                                   | 6               |
+| 0x05 | Servo          | ts:u32 + ticks:u16                                                  | 7               |
 
 ### Bandwidth analysis
 
 At 921600 baud (~92 KB/s):
 - Fast ADC at 1kHz: 11 bytes * 1000/s = 11 KB/s (12% of bandwidth)
-- Slow ADC at ~10Hz: 9 * 10 = 90 B/s
-- Temperature (4 sensors, 20Hz): 10 * 20 = 200 B/s
-- Total steady-state: ~11.3 KB/s — well within capacity
+- Slow ADC at ~10Hz: 13 * 10 = 130 B/s
+- Temperature (4 sensors, 20Hz): 8 * 4 * 20 = 640 B/s
+- Total steady-state: ~11.8 KB/s — well within capacity
 - FIFO (128 bytes) can buffer ~11 fast ADC packets
 
 ### Decoder notes
 
 - Read ID byte to determine payload structure:
-  - IDs 0x01, 0x02, 0x04, 0x05: fixed-length payloads
-  - ID 0x03: read count byte, then count * 2 bytes
+  - IDs 0x01, 0x02, 0x03, 0x04, 0x05: fixed-length payloads
 - Unknown IDs: fail decoding (no resync byte in the stream)
 - All multi-byte values are little-endian
-- Fast ADC timestamps are u32 milliseconds since boot (wraps at ~49 days)
+- Timestamps are u32 milliseconds since boot (wraps at ~49 days)
 
 ## Hardware Configuration
 
@@ -94,15 +93,15 @@ New module in `src/bin/test_stand_controller/blackbox.rs` containing:
 - Packet ID constants
 - `BlackboxPacket` enum (for channel-transported packets):
   ```
-  Temperature { count, values: [u16; MAX_SENSORS] }
-  Digital { value }
-  Servo { ticks }
+  Temperature { sensor_id, timestamp_ms, value }
+  Digital { timestamp_ms, value }
+  Servo { timestamp_ms, ticks }
   ```
 - `BLACKBOX_CHANNEL: Channel<CriticalSectionRawMutex, BlackboxPacket, 32>`
 - `send_to_blackbox(packet)` — public API, calls try_send, drops on full
-- `BlackboxWriter` struct wrapping `UartTx<'static, Blocking>`:
+  - `BlackboxWriter` struct wrapping `UartTx<'static, Blocking>`:
   - `write_fast_adc(ts, tensometer, tank, combustion)`
-  - `write_slow_adc(bat_stand, bat_comp, boost, starter)`
+  - `write_slow_adc(ts, bat_stand, bat_comp, boost, starter)`
   - `write_packet(packet: &BlackboxPacket)`
   - Internal: serializes to stack buffer, writes to UART
 
@@ -119,9 +118,9 @@ New module in `src/bin/test_stand_controller/blackbox.rs` containing:
 
 ### temperature_collection_task
 
-- After `driver.read_all_temperatures()`: construct
-  `BlackboxPacket::Temperature` and call `send_to_blackbox()`
-- One additional function call per 50ms tick
+- After `driver.read_all_temperatures()`: emit one
+  `BlackboxPacket::Temperature` per sensor and call `send_to_blackbox()`
+- One additional function call per sensor on each 50ms tick
 
 ### armed_monitor_task
 

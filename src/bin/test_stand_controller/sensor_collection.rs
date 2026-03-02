@@ -126,9 +126,7 @@ async fn collect_and_publish_fast(
             pressure_combustion[index],
         );
 
-        if index % 10 == 0 {
-            blackbox.drain_channel();
-        }
+        blackbox.send_one_from_channel();
 
         if index + 1 < FAST_BATCH_SAMPLES {
             Timer::after_millis(1).await;
@@ -205,7 +203,6 @@ fn collect_and_publish_slow(
         boost_voltage.value,
         starter_sense.value,
     );
-    blackbox.drain_channel();
 
     let batch = SlowSensorsBatch {
         battery_stand: Some(battery_stand),

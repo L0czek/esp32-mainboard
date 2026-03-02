@@ -1,12 +1,10 @@
+use crate::config::BLACKBOX_BAUD_RATE;
 use defmt::warn;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use esp_hal::uart::{Config, UartTx};
 use esp_hal::Blocking;
 use mainboard::board::D3Pin;
-use mainboard::tmp107::MAX_SENSORS;
-
-use crate::config::BLACKBOX_BAUD_RATE;
 
 const ID_FAST_ADC: u8 = 0x01;
 const ID_SLOW_ADC: u8 = 0x02;
@@ -14,16 +12,16 @@ const ID_TEMPERATURE: u8 = 0x03;
 const ID_DIGITAL: u8 = 0x04;
 const ID_SERVO: u8 = 0x05;
 
-const CHANNEL_CAPACITY: usize = 32;
+const CHANNEL_CAPACITY: usize = 128;
 
 static BLACKBOX_CHANNEL: Channel<CriticalSectionRawMutex, BlackboxPacket, CHANNEL_CAPACITY> =
     Channel::new();
 
 pub enum BlackboxPacket {
     Temperature {
-        count: u8,
+        sensor_id: u8,
         timestamp_ms: u32,
-        values: [u16; MAX_SENSORS],
+        value: u16,
     },
     Digital {
         timestamp_ms: u32,
@@ -84,21 +82,16 @@ impl BlackboxWriter {
     pub fn write_packet(&mut self, packet: &BlackboxPacket) {
         match packet {
             BlackboxPacket::Temperature {
-                count,
+                sensor_id,
                 timestamp_ms,
-                values,
+                value,
             } => {
-                let n = *count as usize;
-                let total = 6 + n * 2;
-                let mut buf = [0u8; 6 + MAX_SENSORS * 2];
+                let mut buf = [0u8; 8];
                 buf[0] = ID_TEMPERATURE;
-                buf[1] = *count;
-                buf[2..6].copy_from_slice(&timestamp_ms.to_le_bytes());
-                for (i, val) in values.iter().enumerate().take(n) {
-                    let off = 6 + i * 2;
-                    buf[off..off + 2].copy_from_slice(&val.to_le_bytes());
-                }
-                self.write_all(&buf[..total]);
+                buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
+                buf[5] = *sensor_id;
+                buf[6..8].copy_from_slice(&value.to_le_bytes());
+                self.write_all(&buf);
             }
             BlackboxPacket::Digital {
                 timestamp_ms,
@@ -123,8 +116,8 @@ impl BlackboxWriter {
         }
     }
 
-    pub fn drain_channel(&mut self) {
-        while let Ok(packet) = BLACKBOX_CHANNEL.try_receive() {
+    pub fn send_one_from_channel(&mut self) {
+        if let Ok(packet) = BLACKBOX_CHANNEL.try_receive() {
             self.write_packet(&packet);
         }
     }
@@ -132,13 +125,20 @@ impl BlackboxWriter {
     fn write_all(&mut self, buf: &[u8]) {
         let mut remaining = buf;
         while !remaining.is_empty() {
-            match self.tx.write(remaining) {
-                Ok(n) => remaining = &remaining[n..],
-                Err(e) => {
-                    warn!("Blackbox UART write error: {:?}", e);
-                    break;
-                }
+            if !self.tx.write_ready() {
+                panic!("Blackbox UART TX FIFO full");
             }
+
+            let written = self
+                .tx
+                .write(remaining)
+                .expect("Blackbox UART write failed");
+
+            if written == 0 {
+                panic!("Blackbox UART write returned 0 with pending data");
+            }
+
+            remaining = &remaining[written..];
         }
     }
 }

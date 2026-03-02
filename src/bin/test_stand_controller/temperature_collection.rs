@@ -81,13 +81,13 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
 
         let now = Instant::now().as_millis() as u32;
 
-        let mut bb_values = [0u16; MAX_SENSORS];
-        bb_values[..count].copy_from_slice(&read_buf[..count]);
-        crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Temperature {
-            count: count as u8,
-            timestamp_ms: now,
-            values: bb_values,
-        });
+        for (sensor, value) in read_buf.iter().copied().enumerate().take(count) {
+            crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Temperature {
+                sensor_id: (sensor + 1) as u8,
+                timestamp_ms: now,
+                value,
+            });
+        }
 
         if sample_index == 0 {
             first_timestamp_ms = now;
