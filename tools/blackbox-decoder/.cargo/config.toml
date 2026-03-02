@@ -1,0 +1,5 @@
+# Override the firmware's riscv target — this is an x86 host tool.
+# NOTE: Must build with RUSTFLAGS="" to clear parent config's nightly
+# flags. Use the Makefile targets or set RUSTFLAGS="" manually.
+[build]
+target = "x86_64-unknown-linux-gnu"

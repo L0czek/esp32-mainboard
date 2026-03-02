@@ -19,6 +19,30 @@ Current work scope is `src/bin/test_stand_controller/` only.
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
 - `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
 
+## Host Tools
+
+### `tools/blackbox-decoder/` — Blackbox SD Card Tool
+Standalone Rust crate (x86, stable toolchain) with two subcommands:
+- **decode**: reads raw binary from SD card into NDJSON on stdout. Handles
+  zero-padding (silently skipped), experiment separator bytes (emits
+  `{"type":"experiment_separator"}`), and fails on unknown byte IDs.
+- **format**: zero-fills an SD card or image file before a new experiment.
+  Requires confirmation (`--yes` to skip). `--quick` stops at the first
+  chunk that is already all zeros (fast re-format after a previous full format).
+
+**Files:**
+- `src/packet.rs`: Packet ID constants and `PacketData` enum (serde-tagged).
+- `src/decoder.rs`: `PacketDecoder<R: Read>` — sequential binary reader with offset tracking.
+- `src/main.rs`: CLI entry point (clap subcommands), decode + format logic.
+- `.cargo/config.toml`: Overrides parent riscv target to x86_64.
+- `rust-toolchain.toml`: Forces stable toolchain (parent uses nightly).
+- `Makefile`: Build/check/fmt targets with `RUSTFLAGS=""` to clear parent's nightly flags.
+
+**Build:** `cd tools/blackbox-decoder && make build`
+**Lint:** `make check` (clippy) and `make fmt` (rustfmt)
+**Decode:** `RUSTFLAGS="" cargo run -- decode [--separator <hex>] <path>`
+**Format:** `RUSTFLAGS="" cargo run -- format [--yes] <device-or-file>`
+
 ## Build, Test, and Development Commands
 - `cargo check --bin test_stand_controller`: fast compile check with auto-loaded compile-time env.
 - `cargo build --release --bin test_stand_controller`: optimized firmware build with auto-loaded compile-time env.
@@ -63,9 +87,9 @@ Current work scope is `src/bin/test_stand_controller/` only.
   an external recording device for disaster-proof data retention. Operates in
   parallel with MQTT — both receive the same data independently.
   - Packet format: `ID(1) + payload` with fixed or self-describing lengths.
-  - Packet IDs: 0x01 Fast ADC (3ch, 11B), 0x02 Slow ADC (4ch, 13B), 0x03 Temperature
-    (variable, 6+2*count B), 0x04 Digital (6B), 0x05 Servo (7B). All multi-byte values
-    little-endian.
+  - Packet IDs: 0x01 Fast ADC (3ch, 11B, timestamp first in payload), 0x02 Slow ADC
+    (4ch, 9B), 0x03 Temperature (variable, 2+2*count B), 0x04 Digital (2B), 0x05
+    Servo (3B). All multi-byte values little-endian.
   - UART1 TX owned by `sensor_collection_task` (blocking writes to hardware FIFO).
     Other tasks send via `BLACKBOX_CHANNEL` (embassy_sync Channel, capacity 32);
     sensor task drains it every ~10ms.

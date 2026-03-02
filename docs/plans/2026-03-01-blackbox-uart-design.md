@@ -39,9 +39,8 @@ any future task             --> BLACKBOX_CHANNEL --> sensor_task --> UART1
 
 ## Packet Format
 
-All packets: `SYNC(1) + ID(1) + PAYLOAD(variable)`
+All packets: `ID(1) + PAYLOAD(variable)`
 
-- SYNC byte: `0xAA` — marks packet start, enables resync after corruption
 - ID byte: identifies packet type; fixed or self-describing payload length
 - PAYLOAD: raw little-endian binary, no delimiters, no checksum
 
@@ -49,33 +48,29 @@ All packets: `SYNC(1) + ID(1) + PAYLOAD(variable)`
 
 | ID   | Name           | Payload                                                              | Total bytes     |
 |------|----------------|----------------------------------------------------------------------|-----------------|
-| 0x01 | Fast ADC (3ch) | ts:u32 + tensometer:u16 + tank:u16 + combustion:u16                  | 12              |
-| 0x02 | Slow ADC (4ch) | ts:u32 + bat_stand:u16 + bat_comp:u16 + boost:u16 + starter:u16     | 14              |
-| 0x03 | Temperature    | count:u8 + ts:u32 + [raw:u16; count]                                | 7 + 2*count     |
-| 0x04 | Digital        | ts:u32 + value:u8                                                   | 7               |
-| 0x05 | Servo          | ts:u32 + ticks:u16                                                  | 8               |
-| 0x06 | Log message    | len:u8 + data:[u8; len]                                             | 4 + len         |
-| 0x07 | Heartbeat      | ts:u32                                                              | 6               |
+| 0x01 | Fast ADC (3ch) | ts:u32 + tensometer:u16 + tank:u16 + combustion:u16                 | 11              |
+| 0x02 | Slow ADC (4ch) | bat_stand:u16 + bat_comp:u16 + boost:u16 + starter:u16              | 9               |
+| 0x03 | Temperature    | count:u8 + [raw:u16; count]                                         | 2 + 2*count     |
+| 0x04 | Digital        | value:u8                                                            | 2               |
+| 0x05 | Servo          | ticks:u16                                                           | 3               |
 
 ### Bandwidth analysis
 
 At 921600 baud (~92 KB/s):
-- Fast ADC at 1kHz: 12 bytes * 1000/s = 12 KB/s (13% of bandwidth)
-- Slow ADC at ~10Hz: 14 * 10 = 140 B/s
-- Temperature (4 sensors, 20Hz): 15 * 20 = 300 B/s
-- Total steady-state: ~13 KB/s — well within capacity
-- FIFO (128 bytes) can buffer ~10 fast ADC packets
+- Fast ADC at 1kHz: 11 bytes * 1000/s = 11 KB/s (12% of bandwidth)
+- Slow ADC at ~10Hz: 9 * 10 = 90 B/s
+- Temperature (4 sensors, 20Hz): 10 * 20 = 200 B/s
+- Total steady-state: ~11.3 KB/s — well within capacity
+- FIFO (128 bytes) can buffer ~11 fast ADC packets
 
 ### Decoder notes
 
-- Scan for SYNC byte (0xAA) to find packet boundaries
-- ID byte determines payload structure:
-  - IDs 0x01, 0x02, 0x04, 0x05, 0x07: fixed-length payloads
+- Read ID byte to determine payload structure:
+  - IDs 0x01, 0x02, 0x04, 0x05: fixed-length payloads
   - ID 0x03: read count byte, then count * 2 bytes
-  - ID 0x06: read len byte, then len bytes
-- Unknown IDs: skip until next SYNC byte (forward-compatible)
+- Unknown IDs: fail decoding (no resync byte in the stream)
 - All multi-byte values are little-endian
-- Timestamps are u32 milliseconds since boot (wraps at ~49 days)
+- Fast ADC timestamps are u32 milliseconds since boot (wraps at ~49 days)
 
 ## Hardware Configuration
 
@@ -96,19 +91,18 @@ At 921600 baud (~92 KB/s):
 
 New module in `src/bin/test_stand_controller/blackbox.rs` containing:
 
-- `SYNC_BYTE`, packet ID constants
+- Packet ID constants
 - `BlackboxPacket` enum (for channel-transported packets):
   ```
-  Temperature { count, timestamp_ms, values: [u16; MAX_SENSORS] }
-  Digital { timestamp_ms, value }
-  Servo { timestamp_ms, ticks }
-  Log { len, data: [u8; 64] }
+  Temperature { count, values: [u16; MAX_SENSORS] }
+  Digital { value }
+  Servo { ticks }
   ```
 - `BLACKBOX_CHANNEL: Channel<CriticalSectionRawMutex, BlackboxPacket, 32>`
 - `send_to_blackbox(packet)` — public API, calls try_send, drops on full
 - `BlackboxWriter` struct wrapping `UartTx<'static, Blocking>`:
   - `write_fast_adc(ts, tensometer, tank, combustion)`
-  - `write_slow_adc(ts, bat_stand, bat_comp, boost, starter)`
+  - `write_slow_adc(bat_stand, bat_comp, boost, starter)`
   - `write_packet(packet: &BlackboxPacket)`
   - Internal: serializes to stack buffer, writes to UART
 

@@ -1,0 +1,11 @@
+[package]
+name = "blackbox-decoder"
+version = "0.1.0"
+edition = "2024"
+description = "Decode raw blackbox binary data from SD card into NDJSON"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.5.60", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
