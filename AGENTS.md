@@ -16,10 +16,35 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
 - `src/bin/test_stand_controller/sequencer.rs`: state sequencer task (ARMED/FIRE/POSTFIRE state machine, signal light control, safety switch monitoring).
 - `src/bin/test_stand_controller/servo.rs`: servo controller task (MCPWM PWM, command channel, linear interpolation).
-- `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions).
+- `src/bin/test_stand_controller/blackbox.rs`: UART1 blackbox data logger — streams sensor data to external recording device.
+- `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions, blackbox baud rate).
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
 - `src/signal_light.rs`: PCF8574-based signalling light tower driver (active-low, 5 LEDs + buzzer).
 - `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
+
+## Host Tools
+
+### `tools/blackbox-decoder/` — Blackbox SD Card Tool
+Standalone Rust crate (x86, stable toolchain) with two subcommands:
+- **decode**: reads raw binary from SD card into NDJSON on stdout. Handles
+  zero-padding (silently skipped), experiment separator bytes (emits
+  `{"type":"experiment_separator"}`), and fails on unknown byte IDs.
+- **format**: zero-fills an SD card or image file before a new experiment.
+  Requires confirmation (`--yes` to skip). `--quick` stops at the first
+  chunk that is already all zeros (fast re-format after a previous full format).
+
+**Files:**
+- `src/packet.rs`: Packet ID constants and `PacketData` enum (serde-tagged).
+- `src/decoder.rs`: `PacketDecoder<R: Read>` — sequential binary reader with offset tracking.
+- `src/main.rs`: CLI entry point (clap subcommands), decode + format logic.
+- `.cargo/config.toml`: Overrides parent riscv target to x86_64.
+- `rust-toolchain.toml`: Forces stable toolchain (parent uses nightly).
+- `Makefile`: Build/check/fmt targets with `RUSTFLAGS=""` to clear parent's nightly flags.
+
+**Build:** `cd tools/blackbox-decoder && make build`
+**Lint:** `make check` (clippy) and `make fmt` (rustfmt)
+**Decode:** `RUSTFLAGS="" cargo run -- decode [--separator <hex>] <path>`
+**Format:** `RUSTFLAGS="" cargo run -- format [--yes] <device-or-file>`
 
 ## Build, Test, and Development Commands
 - `cargo check --bin test_stand_controller`: fast compile check with auto-loaded compile-time env.
@@ -74,6 +99,18 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `tmp107_sensor_test` provides a standalone hardware test for that same UART0 TMP107 chain:
   one-shot conversion, per-sensor temperature logging, a walking ALERT1/ALERT2 blink pattern,
   address-bit LED display, then repeat.
+- Blackbox UART data logger streams all sensor data over UART1 TX (D4) to
+  an external recording device for disaster-proof data retention. Operates in
+  parallel with MQTT — both receive the same data independently.
+  - Packet format: `ID(1) + payload` with fixed or self-describing lengths.
+  - Packet IDs: 0x01 Fast ADC (3ch, 11B), 0x02 Slow ADC (4ch, 13B), 0x03
+    Temperature (per-sensor, 8B: `ts:u32 + sensor_id:u8 + raw:u16`), 0x04
+    Digital (6B), 0x05 Servo (7B). All multi-byte values little-endian.
+  - UART1 TX owned by `sensor_collection_task` (blocking writes to hardware FIFO).
+    Other tasks send via `BLACKBOX_CHANNEL` (embassy_sync Channel, capacity 32);
+    sensor task drains it every ~10ms.
+  - Configurable baud rate via `BLACKBOX_BAUD_RATE` in config.rs (default 921600).
+  - Design doc: `docs/plans/2026-03-01-blackbox-uart-design.md`.
 
 ## Coding Style & Naming Conventions
 Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiomatic Rust naming:

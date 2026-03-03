@@ -78,6 +78,10 @@ fn publish_servo_position(ticks: u16) {
     if queue::publish_servo_sensor(packet).is_err() {
         warn!("Failed to publish servo position: queue full");
     }
+    crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Servo {
+        timestamp_ms,
+        ticks,
+    });
 }
 
 pub fn current_servo_status() -> ServoStatus {

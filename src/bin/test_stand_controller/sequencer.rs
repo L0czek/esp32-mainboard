@@ -62,8 +62,13 @@ pub fn republish_sequencer_state() {
 
 pub fn republish_armed_state() {
     let value = LAST_ARMED_VALUE.load(Ordering::Relaxed);
-    let packet = ArmedPacket::new(timestamp_ms(), value);
+    let ts = timestamp_ms();
+    let packet = ArmedPacket::new(ts, value);
     let _ = crate::mqtt::publish_armed_sensor(packet);
+    crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital {
+        timestamp_ms: ts,
+        value,
+    });
 }
 
 fn store_state(status: StateStatus) {

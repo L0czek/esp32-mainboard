@@ -7,6 +7,7 @@
     holding buffers for the duration of a data transfer."
 )]
 
+mod blackbox;
 mod camera_shutter;
 mod config;
 mod mqtt;
@@ -87,6 +88,8 @@ async fn main(spawner: Spawner) {
         battery_stand: board.A4,
         battery_computer: board.BatVol,
         boost_voltage: board.BoostVol,
+        uart1: peripherals.UART1,
+        blackbox_tx_pin: board.D4,
     };
 
     let power_config = Default::default();
@@ -152,7 +155,7 @@ async fn main(spawner: Spawner) {
     info!("Servo controller task spawned");
 
     let shutter_pin = esp_hal::gpio::Output::new(
-        board.D4,
+        board.D3,
         esp_hal::gpio::Level::Low,
         esp_hal::gpio::OutputConfig::default(),
     );
