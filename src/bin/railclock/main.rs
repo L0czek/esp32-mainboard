@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) -> ! {
     // Spawn battery monitor (ADC) which will publish its readings via MQTT helper
     let adc_config = esp_hal::analog::adc::AdcConfig::new();
     let battery_cal: battery::BatteryCalibration = Default::default();
-    let battery = battery::spawn_battery_task(
+    let _battery = battery::spawn_battery_task(
         &spawner,
         peripherals.ADC1,
         adc_config,

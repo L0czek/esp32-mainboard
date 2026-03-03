@@ -325,6 +325,7 @@ impl DigitalIoHandle {
 
     /// Get the current state and mode of a pin
     /// Note: Prefer watch() for updates instead of polling with this function
+    #[allow(dead_code)]
     pub fn get(&self, id: DigitalPinID) -> Option<(PinMode, PinState)> {
         match id {
             DigitalPinID::D0 => DIGITAL_D0_STATE.try_get(),

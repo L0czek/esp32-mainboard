@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) -> ! {
 
     init_i2c_bus(peripherals.I2C0, board.Sda, board.Scl).expect("Failed to initialize I2C bus");
 
-    let rng = esp_hal::rng::Rng::new();
+    let _rng = esp_hal::rng::Rng::new();
     let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
     let (mut _wifi_controller, _interfaces) =
         esp_radio::wifi::new(&radio_init, peripherals.WIFI, Default::default())

@@ -4,7 +4,7 @@ use alloc::format;
 use defmt::{error, info};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_time::{Duration, Instant, Timer};
-use mcp794xx::{NaiveDate, NaiveDateTime};
+use mcp794xx::NaiveDateTime;
 use smoltcp::wire::DnsQueryType;
 use sntpc::{get_time, NtpContext, NtpTimestampGenerator};
 

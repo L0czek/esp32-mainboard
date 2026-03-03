@@ -4,7 +4,10 @@ use defmt::Format;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch};
 use embassy_time::{Duration, Ticker};
-use esp_hal::{analog::adc::{Adc, AdcCalLine, AdcConfig}, peripherals::ADC1};
+use esp_hal::{
+    analog::adc::{Adc, AdcCalLine, AdcConfig},
+    peripherals::ADC1,
+};
 
 use mainboard::board::BatVolPin;
 
@@ -18,7 +21,9 @@ pub struct BatteryHandle {
 }
 
 impl BatteryHandle {
-    pub fn state_receiver(&self) -> Option<watch::Receiver<'static, CriticalSectionRawMutex, u16, 4>> {
+    pub fn state_receiver(
+        &self,
+    ) -> Option<watch::Receiver<'static, CriticalSectionRawMutex, u16, 4>> {
         BATTERY_STATE.receiver()
     }
 
@@ -27,11 +32,15 @@ impl BatteryHandle {
     }
 }
 
-pub struct BatteryCalibration { pub battery_voltage_calibration: u32 }
+pub struct BatteryCalibration {
+    pub battery_voltage_calibration: u32,
+}
 
 impl Default for BatteryCalibration {
     fn default() -> Self {
-        Self { battery_voltage_calibration: 5624 }
+        Self {
+            battery_voltage_calibration: 5624,
+        }
     }
 }
 
@@ -44,7 +53,16 @@ pub fn spawn_battery_task(
     publish_interval_secs: Option<u64>,
     publish_topic: Option<&'static str>,
 ) -> BatteryHandle {
-    spawner.spawn(battery_task(instance, config, calibration, bat_pin, publish_interval_secs, publish_topic)).expect("spawn battery task failed");
+    spawner
+        .spawn(battery_task(
+            instance,
+            config,
+            calibration,
+            bat_pin,
+            publish_interval_secs,
+            publish_topic,
+        ))
+        .expect("spawn battery task failed");
     BatteryHandle { _priv: PhantomData }
 }
 
@@ -75,9 +93,11 @@ async fn battery_task(
         const SAMPLES: usize = 8;
         for _ in 0..SAMPLES {
             let raw = adc.read_oneshot(&mut adc_bat_pin).await as u32;
+            #[allow(non_snake_case)]
             let mV = raw * calibration.battery_voltage_calibration / 1000;
             sum += mV;
         }
+        #[allow(non_snake_case)]
         let avg_mV = (sum / (SAMPLES as u32)) as u16;
 
         sender.send(avg_mV);
@@ -87,7 +107,7 @@ async fn battery_task(
             // Format as volts with two decimals
             let whole = avg_mV as u32 / 1000;
             let frac = (avg_mV as u32 % 1000) / 10;
-            let payload = alloc::format!("{}.{}", whole, alloc::format!("{:02}", frac));
+            let payload = alloc::format!("{}.{:02}", whole, frac);
             let _ = crate::mqtt_queue::mqtt_publish(topic, &payload, true);
         }
 

@@ -214,21 +214,6 @@ pub(crate) async fn rtc_handler() {
                 }
             }
 
-            RtcRequest::DisableAlarm(alarm) => match rtc.disable_alarm(alarm) {
-                Ok(()) => RtcResponse::Ok,
-                Err(e) => RtcResponse::RtcError(e),
-            },
-
-            RtcRequest::SetAlarm {
-                alarm,
-                when,
-                matching,
-                polarity,
-            } => match rtc.set_alarm(alarm, when, matching, polarity) {
-                Ok(()) => RtcResponse::Ok,
-                Err(e) => RtcResponse::RtcError(e),
-            },
-
             RtcRequest::HasAlarmMatched(alarm) => match rtc.has_alarm_matched(alarm) {
                 Ok(v) => RtcResponse::HasAlarmMatched(v),
                 Err(e) => RtcResponse::RtcError(e),
@@ -236,11 +221,6 @@ pub(crate) async fn rtc_handler() {
 
             RtcRequest::ClearAlarmMatchedFlag(alarm) => match rtc.clear_alarm_matched_flag(alarm) {
                 Ok(()) => RtcResponse::Ok,
-                Err(e) => RtcResponse::RtcError(e),
-            },
-
-            RtcRequest::GetDateTime() => match rtc.datetime() {
-                Ok(v) => RtcResponse::DateTime(v),
                 Err(e) => RtcResponse::RtcError(e),
             },
 
