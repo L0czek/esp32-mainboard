@@ -4,7 +4,7 @@ use esp_hal::uart::{RxError, TxError, UartRx, UartTx};
 use esp_hal::Async;
 
 /// Maximum sensors in a TMP107 daisy chain (5-bit address space).
-pub const MAX_SENSORS: usize = 32;
+pub const MAX_SENSORS: usize = 31;
 
 /// Sent before every command so sensors can auto-detect baud rate.
 const CALIBRATION_BYTE: u8 = 0x55;
@@ -69,6 +69,9 @@ const READ_TIMEOUT_MS: u64 = 10;
 
 /// Timeout waiting for next address-init response before giving up.
 const ADDR_DISCOVER_TIMEOUT_MS: u64 = 50;
+
+/// Datasheet recommended wait time between triggering one-shot temperature collection and reading temperature
+pub const ONESHOT_CONVERSION_MS: u64 = 20;
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
 pub enum Tmp107Error {

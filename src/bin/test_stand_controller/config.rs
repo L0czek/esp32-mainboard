@@ -1,3 +1,7 @@
+// =============================================
+//                    MQTT
+// =============================================
+
 pub static MQTT_HOST: &str = env!("MQTT_HOST");
 pub const MQTT_PORT: u16 = 1883;
 pub static MQTT_USER: Option<&str> = option_env!("MQTT_USER");
@@ -6,9 +10,19 @@ pub static MQTT_CLIENT_ID: &str = match option_env!("MQTT_CLIENT_ID") {
     Some(id) => id,
     None => "esp32-test-stand",
 };
+
+// =============================================
+//              Temperature (TMP107)
+// =============================================
+
 pub const TEMP_COLLECTION_INTERVAL_MS: u64 = 50;
+/// Number of temperature readings to collect into one MQTT packet
 pub const TEMP_BATCH_SIZE: usize = 20;
-pub const ONESHOT_CONVERSION_MS: u64 = 20;
+pub const TEMP_UART_BOUDRATE: u32 = 115200;
+
+// =============================================
+//                    SERVO
+// =============================================
 
 // Servo pulse width range (MCPWM ticks mapping physical 0-180 degrees)
 pub const SERVO_MIN_PULSE_TICKS: u16 = 500;

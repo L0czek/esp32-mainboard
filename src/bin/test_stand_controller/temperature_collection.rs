@@ -3,11 +3,11 @@ use embassy_time::{Duration, Instant, Ticker, Timer};
 use esp_hal::peripherals::UART0;
 use esp_hal::uart::Uart;
 
-use crate::config::{ONESHOT_CONVERSION_MS, TEMP_BATCH_SIZE, TEMP_COLLECTION_INTERVAL_MS};
+use crate::config::{TEMP_BATCH_SIZE, TEMP_COLLECTION_INTERVAL_MS, TEMP_UART_BOUDRATE};
 use crate::mqtt::publish_temperature_sensor;
 use crate::mqtt::sensors::temp::TempPacket;
 use mainboard::board::{D0Pin, U0RxPin, U0TxPin};
-use mainboard::tmp107::{Tmp107, MAX_SENSORS};
+use mainboard::tmp107::{Tmp107, MAX_SENSORS, ONESHOT_CONVERSION_MS};
 
 pub struct TemperatureCollectionIo {
     pub uart: UART0<'static>,
@@ -20,7 +20,7 @@ pub struct TemperatureCollectionIo {
 pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
     let uart = Uart::new(
         io.uart,
-        esp_hal::uart::Config::default().with_baudrate(115200),
+        esp_hal::uart::Config::default().with_baudrate(TEMP_UART_BOUDRATE),
     )
     .expect("UART0 init failed")
     .with_tx(io.tx_pin)
