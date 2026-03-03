@@ -18,8 +18,8 @@ use smoltcp::wire::{DnsQueryType, IpAddress};
 use static_cell::StaticCell;
 
 use crate::config::{MQTT_CLIENT_ID, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT, MQTT_USER};
-use crate::wifi::WifiResources;
 use crate::CLOCK_DRIVER;
+use mainboard::wifi::WifiResourceSta;
 // battery handle removed; battery task moved into binary and publishes via mqtt_queue
 
 const RECONNECT_DELAY_MS: u64 = 5000;
@@ -51,9 +51,7 @@ fn make_topic_filter(topic: &str) -> Option<TopicFilter<'_>> {
 }
 
 #[embassy_executor::task]
-pub(crate) async fn mqtt_task(wifi: &'static WifiResources) {
-    let sta_stack = &wifi.sta_stack;
-
+pub(crate) async fn mqtt_task(sta_stack: &'static WifiResourceSta) {
     // Initialize static buffers once
     let tcp_rx_buf = TCP_RX_BUF.init([0u8; 4096]);
     let tcp_tx_buf = TCP_TX_BUF.init([0u8; 4096]);

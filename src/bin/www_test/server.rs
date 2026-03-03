@@ -7,7 +7,6 @@ use picoserve::{
     AppBuilder, AppRouter, Router, Server,
 };
 use serde::{Deserialize, Serialize};
-use serde_json;
 extern crate alloc;
 use crate::digital_io::DigitalIoHandle;
 use crate::digital_io::PinMode;
@@ -20,8 +19,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal}
 use mainboard::power::PowerControllerStats;
 use mainboard::tasks::{PowerHandle, PowerResponse};
 
-use crate::wifi::WifiResources;
-use bq24296m;
+use mainboard::wifi::WifiResourcesMixed;
 
 // Define the pool size for web tasks (reduced from 8 to 2 for memory constraints)
 const WEB_TASK_POOL_SIZE: usize = 1;
@@ -702,14 +700,14 @@ impl ws::WebSocketCallback for WebsocketHandler {
 /// and spawns tasks to handle web requests.
 pub async fn run_server(
     spawner: embassy_executor::Spawner,
-    wifi_resources: &WifiResources,
+    wifi_resources: &WifiResourcesMixed,
     power: PowerHandle,
     adc: AdcHandle,
     digital: DigitalIoHandle,
     uart: UartHandle,
     shutdown: ShutdownHandle,
 ) {
-    let WifiResources {
+    let WifiResourcesMixed {
         ap_stack,
         sta_stack,
     } = wifi_resources;

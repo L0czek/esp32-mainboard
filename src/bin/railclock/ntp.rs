@@ -10,7 +10,7 @@ use sntpc::{get_time, NtpContext, NtpTimestampGenerator};
 
 use crate::config::NTP_SERVER;
 use crate::rtc::RTC;
-use crate::wifi::WifiResources;
+use mainboard::wifi::WifiResourceSta;
 
 #[derive(Copy, Clone)]
 struct Timestamp {
@@ -40,8 +40,7 @@ impl NtpTimestampGenerator for Timestamp {
 }
 
 #[embassy_executor::task]
-pub(crate) async fn sync_time_with_ntp(stack: &'static WifiResources) {
-    let WifiResources { sta_stack } = stack;
+pub(crate) async fn sync_time_with_ntp(sta_stack: &'static WifiResourceSta) {
     let mut rx_meta = [PacketMetadata::EMPTY; 16];
     let mut tx_meta = [PacketMetadata::EMPTY; 16];
     let mut rx_buf = [0u8; 4096];

@@ -14,7 +14,6 @@ mod mqtt;
 mod mqtt_queue;
 mod ntp;
 mod rtc;
-mod wifi;
 
 use alloc::format;
 use defmt::{error, info};
@@ -35,16 +34,16 @@ use crate::driver::{spawn_clock_task, ClockDriver};
 use crate::mqtt::mqtt_task;
 use crate::ntp::sync_time_with_ntp;
 use crate::rtc::{rtc_handler, RTC};
-use crate::wifi::{initialize_wifi, WifiResources};
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board, D0Pin};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{spawn_ext_interrupt_task, spawn_power_controller, PowerStateReceiver};
+use mainboard::wifi::{initialize_wifi_sta, WifiResourceSta};
 
 extern crate alloc;
 
 static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
-static ESP_WIFI_RES: StaticCell<WifiResources> = StaticCell::new();
+static ESP_WIFI_RES: StaticCell<WifiResourceSta> = StaticCell::new();
 static CLOCK_DRIVER: OnceLock<ClockDriver> = OnceLock::new();
 static RTC_INT_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 pub static NTP_TRIGGER: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -83,8 +82,8 @@ async fn main(spawner: Spawner) -> ! {
     let mut rng = esp_hal::rng::Rng::new();
     let radio_init =
         ESP_RADIO_INIT.init(esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller"));
-    let wifi_res =
-        ESP_WIFI_RES.init(initialize_wifi(spawner, radio_init, peripherals.WIFI, &mut rng).await);
+    let wifi_res = ESP_WIFI_RES
+        .init(initialize_wifi_sta(spawner, radio_init, peripherals.WIFI, &mut rng).await);
     info!("WiFi initialized!");
 
     CLOCK_DRIVER.get_or_init(|| ClockDriver::new());

@@ -29,7 +29,7 @@ use crate::mqtt::topics::{
     self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_STATUS_CMD,
     TOPIC_STATUS_SERVO, TOPIC_STATUS_STATE,
 };
-use crate::wifi::WifiResources;
+use mainboard::wifi::WifiResourceSta;
 
 const RECONNECT_DELAY_MS: u64 = 5000;
 const MQTT_KEEPALIVE_SECS: u16 = 10;
@@ -104,7 +104,7 @@ impl ShutdownCommandHandler for AppCommandHandlers {
 
 #[embassy_executor::task]
 pub async fn mqtt_task(
-    wifi: &'static WifiResources,
+    wifi: &'static WifiResourceSta,
     shutdown_signal: &'static Signal<CriticalSectionRawMutex, ()>,
 ) {
     let tcp_rx_buf = TCP_RX_BUF.init([0u8; TCP_BUFFER_SIZE]);
@@ -112,17 +112,11 @@ pub async fn mqtt_task(
     let mqtt_buf = MQTT_BUF.init([0u8; MQTT_BUFFER_SIZE]);
 
     loop {
-        wifi.sta_stack.wait_link_up().await;
-        wifi.sta_stack.wait_config_up().await;
+        wifi.wait_link_up().await;
+        wifi.wait_config_up().await;
 
-        if let Err(error) = mqtt_connection_loop(
-            &wifi.sta_stack,
-            tcp_rx_buf,
-            tcp_tx_buf,
-            mqtt_buf,
-            shutdown_signal,
-        )
-        .await
+        if let Err(error) =
+            mqtt_connection_loop(&wifi, tcp_rx_buf, tcp_tx_buf, mqtt_buf, shutdown_signal).await
         {
             error!("MQTT session ended: {:?}", &error);
         }

@@ -9,11 +9,9 @@
 #![recursion_limit = "256"]
 
 mod adc;
-mod config;
 mod digital_io;
 mod server;
 mod uart;
-mod wifi;
 
 use esp_hal::analog::adc::AdcConfig;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
@@ -22,6 +20,7 @@ use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
     spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
 };
+use mainboard::wifi::initialize_wifi_mixed;
 
 use crate::adc::{spawn_adc_task, AdcHandle, VoltageMonitorCalibrationConfig};
 use crate::digital_io::{spawn_digital_io, DigitalPinID};
@@ -136,7 +135,7 @@ async fn main(spawner: Spawner) {
     // Initialize WiFi in mixed mode (AP + STA)
     info!("Initializing WiFi...");
     let wifi_resources =
-        wifi::initialize_wifi(spawner, radio_init, peripherals.WIFI, &mut rng).await;
+        initialize_wifi_mixed(spawner, radio_init, peripherals.WIFI, &mut rng).await;
     info!("WiFi initialized!");
 
     // Initialize simple output

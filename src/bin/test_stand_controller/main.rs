@@ -14,15 +14,14 @@ mod sensor_collection;
 mod sequencer;
 mod servo;
 mod temperature_collection;
-mod wifi;
 
-use crate::wifi::WifiResources;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
     spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
 };
+use mainboard::wifi::{initialize_wifi_sta, WifiResourceSta};
 
 use defmt::info;
 use embassy_executor::Spawner;
@@ -36,7 +35,7 @@ use static_cell::StaticCell;
 // StaticCell for WiFi controller
 static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
 // StaticCell for WiFi resources (needed for mqtt_task which requires 'static lifetime)
-static WIFI_RESOURCES: StaticCell<WifiResources> = StaticCell::new();
+static WIFI_RESOURCES: StaticCell<WifiResourceSta> = StaticCell::new();
 static SHUTDOWN_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -116,8 +115,7 @@ async fn main(spawner: Spawner) {
 
     // Initialize WiFi in STA mode
     info!("Initializing WiFi...");
-    let wifi_resources =
-        wifi::initialize_wifi(spawner, radio_init, peripherals.WIFI, &mut rng).await;
+    let wifi_resources = initialize_wifi_sta(spawner, radio_init, peripherals.WIFI, &mut rng).await;
     info!("WiFi initialized!");
 
     // Store wifi resources in static cell for mqtt_task

@@ -47,7 +47,7 @@ impl Default for BatteryCalibration {
 pub fn spawn_battery_task(
     spawner: &Spawner,
     instance: ADC1<'static>,
-    mut config: AdcConfig<ADC1<'static>>,
+    config: AdcConfig<ADC1<'static>>,
     calibration: BatteryCalibration,
     bat_pin: BatVolPin,
     publish_interval_secs: Option<u64>,
