@@ -1,9 +1,10 @@
 use core::net::{IpAddr, SocketAddr};
 
+use alloc::format;
 use defmt::{error, info};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_time::{Duration, Instant, Timer};
-use mcp794xx::NaiveDateTime;
+use mcp794xx::{NaiveDate, NaiveDateTime};
 use smoltcp::wire::DnsQueryType;
 use sntpc::{get_time, NtpContext, NtpTimestampGenerator};
 
@@ -73,9 +74,17 @@ pub(crate) async fn sync_time_with_ntp(stack: &'static WifiResources) {
 
         match result {
             Ok(time) => {
-                let datetime =
-                    NaiveDateTime::from_timestamp(time.sec() as i64, time.sec_fraction()); // TODO: fix this
-                RTC.set_datetime(datetime).await;
+                let datetime = NaiveDateTime::from_timestamp(
+                    time.sec() as i64,
+                    time.sec_fraction() * (1_000_000_000 / u32::MAX),
+                );
+                if let Err(e) = RTC.set_datetime(datetime).await {
+                    error!(
+                        "Failed to set RTC time, reason: {}",
+                        format!("{:?}", e).as_str()
+                    );
+                }
+
                 info!("Time: {:?}", time);
             }
             Err(e) => {

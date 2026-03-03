@@ -26,6 +26,7 @@ pub enum PowerRequest {
     EnableBoostConverter(bool),
     CheckInterrupt,
     EnterShippingMode,
+    EnterPassiveMode,
 }
 
 pub enum PowerResponse {
@@ -126,6 +127,13 @@ fn handle_power_controller_command(
             },
             Err(e) => PowerResponse::Err(e),
         },
+        PowerRequest::EnterPassiveMode => match pctl.read_stats() {
+            Ok(stats) => match pctl.switch_mode(PowerControllerMode::Passive, &stats) {
+                Ok(()) => PowerResponse::Ok,
+                Err(e) => PowerResponse::Err(e),
+            },
+            Err(e) => PowerResponse::Err(e),
+        },
     }
 }
 
@@ -220,6 +228,10 @@ impl PowerHandle {
 
     pub async fn enter_shipping_mode(&self) -> PowerResponse {
         self.transact(PowerRequest::EnterShippingMode).await
+    }
+
+    pub async fn enter_passive_mode(&self) -> PowerResponse {
+        self.transact(PowerRequest::EnterPassiveMode).await
     }
 
     pub fn state_receiver(&self) -> Option<PowerStateReceiver> {

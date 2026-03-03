@@ -118,7 +118,7 @@ async fn main(spawner: Spawner) {
         .spawn(log_voltage_changes_task(adc))
         .expect("Failed to spawn log_voltage_changes_task");
 
-    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
+    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power, None);
 
     // Initialize UART
     info!("Initializing UART...");

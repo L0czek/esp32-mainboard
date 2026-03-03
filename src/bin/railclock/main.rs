@@ -7,28 +7,36 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+mod battery;
 mod config;
 mod driver;
+mod mqtt;
+mod mqtt_queue;
 mod ntp;
 mod rtc;
 mod wifi;
 
-use defmt::info;
+use alloc::format;
+use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_futures::select::select;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::once_lock::OnceLock;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Input, InputConfig};
 use esp_hal::timer::timg::TimerGroup;
+use mcp794xx::AlarmDateTime;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
+use crate::config::BUTTON_DELAY_MS;
 use crate::driver::{spawn_clock_task, ClockDriver};
+use crate::mqtt::mqtt_task;
 use crate::ntp::sync_time_with_ntp;
-use crate::rtc::rtc_handler;
+use crate::rtc::{rtc_handler, RTC};
 use crate::wifi::{initialize_wifi, WifiResources};
-use mainboard::board::{acquire_i2c_bus, init_i2c_bus, A0Pin, Board, D0Pin};
+use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board, D0Pin};
 use mainboard::create_board;
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{spawn_ext_interrupt_task, spawn_power_controller, PowerStateReceiver};
@@ -38,6 +46,8 @@ extern crate alloc;
 static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
 static ESP_WIFI_RES: StaticCell<WifiResources> = StaticCell::new();
 static CLOCK_DRIVER: OnceLock<ClockDriver> = OnceLock::new();
+static RTC_INT_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub static NTP_TRIGGER: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -93,7 +103,7 @@ async fn main(spawner: Spawner) -> ! {
         .spawn(log_power_state_changes_task(power_receiver))
         .expect("Failed to spawn log_power_state_changes_task");
 
-    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power);
+    spawn_ext_interrupt_task(&spawner, board.GlobalInt, power, Some(&RTC_INT_SIGNAL));
 
     spawner
         .spawn(sync_time_with_ntp(wifi_res))
@@ -104,6 +114,35 @@ async fn main(spawner: Spawner) -> ! {
         .expect("Cannot start RTC handling task");
 
     spawn_clock_task(&spawner, board.Motor0, board.Motor1, power);
+
+    spawner
+        .spawn(listen_on_buttons(board.D0))
+        .expect("Failed to spawn manual controll pin task");
+
+    spawner
+        .spawn(listen_on_tick())
+        .expect("Failed to spawn task awaiting RTC interrupts");
+
+    // Spawn battery monitor (ADC) which will publish its readings via MQTT helper
+    let adc_config = esp_hal::analog::adc::AdcConfig::new();
+    let battery_cal: battery::BatteryCalibration = Default::default();
+    let battery = battery::spawn_battery_task(
+        &spawner,
+        peripherals.ADC1,
+        adc_config,
+        battery_cal,
+        board.BatVol,
+        Some(crate::config::BATTERY_PUBLISH_INTERVAL_SECS),
+        Some("sensor/battery"),
+    );
+
+    spawner
+        .spawn(mqtt_task(wifi_res))
+        .expect("Failed to spawn mqtt task");
+
+    // With no battery I disabled the charging to stop interrupts trying to tell me that battery is
+    // missing will fix later
+    power.enter_passive_mode().await;
 
     loop {
         info!("Hello world!");
@@ -121,22 +160,59 @@ async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
 }
 
 #[embassy_executor::task]
-async fn listen_on_buttons(bt0: A0Pin, bt1: D0Pin) {
-    let mut p0 = Input::new(
-        bt0,
-        InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
-    );
+async fn listen_on_buttons(bt1: D0Pin) {
     let mut p1 = Input::new(
         bt1,
         InputConfig::default().with_pull(esp_hal::gpio::Pull::Up),
     );
 
     loop {
-        match select(p0.wait_for_low(), p1.wait_for_low()).await {
-            _ => {
-                CLOCK_DRIVER.get().await.push_forward(1);
-                Timer::after_millis(600).await;
+        p1.wait_for_low().await;
+        info!("Manual push");
+        CLOCK_DRIVER.get().await.push_forward(1);
+        Timer::after_millis(BUTTON_DELAY_MS).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn listen_on_tick() {
+    let time = AlarmDateTime {
+        month: 1u8,
+        day: 1u8,
+        weekday: 1u8,
+        hour: mcp794xx::Hours::H24(0u8),
+        minute: 0u8,
+        second: 0u8,
+    };
+    RTC.set_alarm(
+        mcp794xx::Alarm::Zero,
+        time,
+        mcp794xx::AlarmMatching::SecondsMatch,
+        mcp794xx::AlarmOutputPinPolarity::Low,
+    )
+    .await
+    .expect("Failed to set alarm on every minute");
+    RTC.enable_alarm(mcp794xx::Alarm::Zero)
+        .await
+        .expect("Failed to set RTC alarm");
+
+    loop {
+        RTC_INT_SIGNAL.wait().await;
+
+        if RTC
+            .has_alarm_matched(mcp794xx::Alarm::Zero)
+            .await
+            .unwrap_or(false)
+        {
+            if let Err(e) = RTC.clear_alarm_matched_flag(mcp794xx::Alarm::Zero).await {
+                error!(
+                    "Failed to reset RTC alarm {:?}",
+                    format!("{:?}", e).as_str()
+                );
             }
+
+            info!("RTC fired advancing clock");
+            CLOCK_DRIVER.get().await.push_forward(1);
         }
     }
 }
