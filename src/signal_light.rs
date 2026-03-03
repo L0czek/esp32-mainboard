@@ -63,10 +63,7 @@ pub struct SignalLight<I2C: I2c> {
 }
 
 impl<I2C: I2c> SignalLight<I2C> {
-    pub fn new(
-        i2c: I2C,
-        address: pcf857x::SlaveAddr,
-    ) -> Result<Self, pcf857x::Error<I2C::Error>> {
+    pub fn new(i2c: I2C, address: pcf857x::SlaveAddr) -> Result<Self, pcf857x::Error<I2C::Error>> {
         let mut expander = Pcf8574::new(i2c, address);
         let config = SignalLightConfig::default();
         expander.set(config.to_register())?;
@@ -76,10 +73,7 @@ impl<I2C: I2c> SignalLight<I2C> {
         })
     }
 
-    pub fn set(
-        &mut self,
-        config: SignalLightConfig,
-    ) -> Result<(), pcf857x::Error<I2C::Error>> {
+    pub fn set(&mut self, config: SignalLightConfig) -> Result<(), pcf857x::Error<I2C::Error>> {
         self.expander.set(config.to_register())?;
         self.current = config;
         Ok(())

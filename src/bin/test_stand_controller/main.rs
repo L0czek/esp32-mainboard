@@ -174,10 +174,7 @@ async fn main(spawner: Spawner) {
         .spawn(sequencer::fire_sequencer_task(fire_trigger_i2c))
         .expect("Failed to spawn fire_sequencer_task");
     spawner
-        .spawn(sequencer::state_sequencer_task(
-            armed_pin,
-            signal_light_i2c,
-        ))
+        .spawn(sequencer::state_sequencer_task(armed_pin, signal_light_i2c))
         .expect("Failed to spawn state_sequencer_task");
     info!("State sequencer task spawned");
 

@@ -5,7 +5,7 @@ use embassy_sync::mutex::Mutex;
 pub struct RequestResponseChannel<Req, Resp, const N: usize> {
     req_channel: Channel<CriticalSectionRawMutex, Req, N>,
     resp_channel: Channel<CriticalSectionRawMutex, Resp, N>,
-    mutex: Mutex<CriticalSectionRawMutex, ()>
+    mutex: Mutex<CriticalSectionRawMutex, ()>,
 }
 
 impl<Req, Resp, const N: usize> RequestResponseChannel<Req, Resp, N> {
@@ -13,7 +13,7 @@ impl<Req, Resp, const N: usize> RequestResponseChannel<Req, Resp, N> {
         Self {
             req_channel: Channel::new(),
             resp_channel: Channel::new(),
-            mutex: Mutex::new(())
+            mutex: Mutex::new(()),
         }
     }
 

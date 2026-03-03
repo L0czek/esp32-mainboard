@@ -92,7 +92,7 @@ async fn main(_spawner: Spawner) -> ! {
     loop {
         cycle = cycle.wrapping_add(1);
         info!("TMP107 test cycle {} starting", cycle);
-        
+
         if let Err(error) = driver.trigger_one_shot().await {
             warn!("TMP107 one-shot trigger failed: {:?}", error);
             Timer::after_millis(LOOP_PAUSE_MS).await;

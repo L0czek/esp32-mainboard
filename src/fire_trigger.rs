@@ -20,15 +20,11 @@ impl<I2C: I2c> FireTrigger<I2C> {
         })
     }
 
-    pub fn trigger(
-        &mut self,
-    ) -> Result<(), pcf857x::Error<I2C::Error>> {
+    pub fn trigger(&mut self) -> Result<(), pcf857x::Error<I2C::Error>> {
         self.expander.set(self.trigger_byte)
     }
 
-    pub fn abort(
-        &mut self,
-    ) -> Result<(), pcf857x::Error<I2C::Error>> {
+    pub fn abort(&mut self) -> Result<(), pcf857x::Error<I2C::Error>> {
         self.expander.set(0xFF)
     }
 }

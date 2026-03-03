@@ -1,7 +1,9 @@
+use crate::mqtt_queue::{OutgoingMessage, OUTGOING_CH};
+use alloc::format;
 use defmt::{error, info, warn};
+use embassy_futures::select::{select, Either};
 use embassy_net::tcp::TcpSocket;
 use embassy_time::{Duration, Timer};
-use embassy_futures::select::{select, Either};
 use rust_mqtt::{
     buffer::BumpBuffer,
     client::{
@@ -14,8 +16,6 @@ use rust_mqtt::{
 };
 use smoltcp::wire::{DnsQueryType, IpAddress};
 use static_cell::StaticCell;
-use alloc::format;
-use crate::mqtt_queue::{OUTGOING_CH, OutgoingMessage};
 
 use crate::config::{MQTT_CLIENT_ID, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT, MQTT_USER};
 use crate::wifi::WifiResources;
@@ -25,7 +25,6 @@ use crate::CLOCK_DRIVER;
 const RECONNECT_DELAY_MS: u64 = 5000;
 const MQTT_KEEPALIVE_SECS: u16 = 10;
 const BUFFER_SIZE: usize = 4096;
-
 
 // Static buffers for MQTT - allocated once, reused across reconnections
 static TCP_RX_BUF: StaticCell<[u8; 4096]> = StaticCell::new();
@@ -118,8 +117,10 @@ async fn mqtt_connection_loop(
     let mut client = Client::<_, _, 5, 2, 2>::new(&mut buffer);
 
     let (user_name, password) = if let (Some(user), Some(pass)) = (MQTT_USER, MQTT_PASSWORD) {
-        let username = MqttString::from_slice(user).map_err(|_| AppMqttError::StringConversionError)?;
-        let password = MqttBinary::try_from(pass.as_bytes()).map_err(|_| AppMqttError::StringConversionError)?;
+        let username =
+            MqttString::from_slice(user).map_err(|_| AppMqttError::StringConversionError)?;
+        let password = MqttBinary::try_from(pass.as_bytes())
+            .map_err(|_| AppMqttError::StringConversionError)?;
         (Some(username), Some(password))
     } else {
         (None, None)
@@ -134,17 +135,22 @@ async fn mqtt_connection_loop(
         will: None,
     };
 
-    let client_id = MqttString::from_slice(MQTT_CLIENT_ID).map_err(|_| AppMqttError::StringConversionError)?;
+    let client_id =
+        MqttString::from_slice(MQTT_CLIENT_ID).map_err(|_| AppMqttError::StringConversionError)?;
 
     info!("MQTT: Connecting to broker...");
     let connect_info = client
         .connect(socket, &connect_options, Some(client_id))
         .await
         .map_err(|_| AppMqttError::MqttError)?;
-    info!("MQTT: Connected to broker, session present: {}", connect_info.session_present);
+    info!(
+        "MQTT: Connected to broker, session present: {}",
+        connect_info.session_present
+    );
 
     // Subscribe to button topics
-    let subscribe_topic = make_topic_filter("button/#").ok_or(AppMqttError::StringConversionError)?;
+    let subscribe_topic =
+        make_topic_filter("button/#").ok_or(AppMqttError::StringConversionError)?;
     info!("MQTT: Subscribing to topic: button/#");
 
     let subscription_options = SubscriptionOptions {
@@ -166,7 +172,10 @@ async fn mqtt_connection_loop(
                 break;
             }
             Ok(event) => {
-                info!("MQTT: Received event while waiting for SUBACK: {:?}",&event);
+                info!(
+                    "MQTT: Received event while waiting for SUBACK: {:?}",
+                    &event
+                );
             }
             Err(e) => {
                 error!("MQTT: Error waiting for SUBACK: {:?}", &e);
@@ -178,7 +187,10 @@ async fn mqtt_connection_loop(
     // Main message loop
     // Publish Home Assistant discovery configuration for battery sensor and buttons
     // Battery sensor
-    if let Some(cfg_topic) = make_topic_name(&format!("homeassistant/sensor/{}/battery/config", MQTT_CLIENT_ID)) {
+    if let Some(cfg_topic) = make_topic_name(&format!(
+        "homeassistant/sensor/{}/battery/config",
+        MQTT_CLIENT_ID
+    )) {
         let cfg_payload = format!(
             "{{\"name\":\"{} Battery\",\"state_topic\":\"sensor/battery\",\"unit_of_measurement\":\"V\",\"unique_id\":\"{}_battery\",\"device\":{{\"identifiers\":[\"{}\"],\"name\":\"{}\"}}}}",
             MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID
@@ -190,26 +202,46 @@ async fn mqtt_connection_loop(
             qos: QoS::AtLeastOnce,
         };
 
-        let _ = client.publish(&cfg_options, cfg_payload.as_bytes().into()).await;
+        let _ = client
+            .publish(&cfg_options, cfg_payload.as_bytes().into())
+            .await;
     }
 
     // Buttons: expose two MQTT-dispatched buttons for Home Assistant
-    if let Some(btn1_topic) = make_topic_name(&format!("homeassistant/button/{}/forward/config", MQTT_CLIENT_ID)) {
+    if let Some(btn1_topic) = make_topic_name(&format!(
+        "homeassistant/button/{}/forward/config",
+        MQTT_CLIENT_ID
+    )) {
         let btn1_payload = format!(
             "{{\"name\":\"{} Forward\",\"command_topic\":\"button/forward\",\"unique_id\":\"{}_button_forward\",\"device\":{{\"identifiers\":[\"{}\"],\"name\":\"{}\"}}}}",
             MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID
         );
-        let btn_opts = PublicationOptions { retain: true, topic: btn1_topic, qos: QoS::AtLeastOnce };
-        let _ = client.publish(&btn_opts, btn1_payload.as_bytes().into()).await;
+        let btn_opts = PublicationOptions {
+            retain: true,
+            topic: btn1_topic,
+            qos: QoS::AtLeastOnce,
+        };
+        let _ = client
+            .publish(&btn_opts, btn1_payload.as_bytes().into())
+            .await;
     }
 
-    if let Some(btn2_topic) = make_topic_name(&format!("homeassistant/button/{}/ntp_sync/config", MQTT_CLIENT_ID)) {
+    if let Some(btn2_topic) = make_topic_name(&format!(
+        "homeassistant/button/{}/ntp_sync/config",
+        MQTT_CLIENT_ID
+    )) {
         let btn2_payload = format!(
             "{{\"name\":\"{} NTP Sync\",\"command_topic\":\"button/ntp_sync\",\"unique_id\":\"{}_button_ntp_sync\",\"device\":{{\"identifiers\":[\"{}\"],\"name\":\"{}\"}}}}",
             MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID
         );
-        let btn_opts = PublicationOptions { retain: true, topic: btn2_topic, qos: QoS::AtLeastOnce };
-        let _ = client.publish(&btn_opts, btn2_payload.as_bytes().into()).await;
+        let btn_opts = PublicationOptions {
+            retain: true,
+            topic: btn2_topic,
+            qos: QoS::AtLeastOnce,
+        };
+        let _ = client
+            .publish(&btn_opts, btn2_payload.as_bytes().into())
+            .await;
     }
 
     // Main message loop: use `poll_header()` (cancellable) in a select together
@@ -217,36 +249,38 @@ async fn mqtt_connection_loop(
     loop {
         match select(client.poll_header(), OUTGOING_CH.receive()).await {
             Either::First(poll_header_res) => match poll_header_res {
-                Ok(header) => {
-                    match client.poll_body(header).await {
-                        Ok(Event::Publish(publish)) => {
-                            let topic_str: &str = publish.topic.as_ref();
-                            let payload: &[u8] = publish.message.as_ref();
+                Ok(header) => match client.poll_body(header).await {
+                    Ok(Event::Publish(publish)) => {
+                        let topic_str: &str = publish.topic.as_ref();
+                        let payload: &[u8] = publish.message.as_ref();
 
-                            info!("MQTT: Received message on '{}': {} bytes", topic_str, payload.len());
+                        info!(
+                            "MQTT: Received message on '{}': {} bytes",
+                            topic_str,
+                            payload.len()
+                        );
 
-                            match topic_str {
-                                "button/forward" => {
-                                    let driver: &crate::driver::ClockDriver = CLOCK_DRIVER.get().await;
-                                    driver.push_forward(1);
-                                }
-                                "button/ntp_sync" => {
-                                    crate::NTP_TRIGGER.signal(());
-                                }
-                                _ => {}
+                        match topic_str {
+                            "button/forward" => {
+                                let driver: &crate::driver::ClockDriver = CLOCK_DRIVER.get().await;
+                                driver.push_forward(1);
                             }
-                        }
-                        Ok(Event::PublishAcknowledged(_)) => {}
-                        Ok(Event::PublishComplete(_)) => {}
-                        Ok(event) => {
-                            info!("MQTT: Received event: {:?}",&event);
-                        }
-                        Err(e) => {
-                            error!("MQTT: Poll body error: {:?}", &e);
-                            return Err(AppMqttError::MqttError);
+                            "button/ntp_sync" => {
+                                crate::NTP_TRIGGER.signal(());
+                            }
+                            _ => {}
                         }
                     }
-                }
+                    Ok(Event::PublishAcknowledged(_)) => {}
+                    Ok(Event::PublishComplete(_)) => {}
+                    Ok(event) => {
+                        info!("MQTT: Received event: {:?}", &event);
+                    }
+                    Err(e) => {
+                        error!("MQTT: Poll body error: {:?}", &e);
+                        return Err(AppMqttError::MqttError);
+                    }
+                },
                 Err(e) => {
                     error!("MQTT: Poll header error: {:?}", &e);
                     return Err(AppMqttError::MqttError);
@@ -255,9 +289,17 @@ async fn mqtt_connection_loop(
             Either::Second(msg) => {
                 // Outgoing message received
                 match msg {
-                    OutgoingMessage::Publish { topic, payload, retain } => {
+                    OutgoingMessage::Publish {
+                        topic,
+                        payload,
+                        retain,
+                    } => {
                         if let Some(pub_topic) = make_topic_name(topic) {
-                            let pub_opts = PublicationOptions { retain, topic: pub_topic, qos: QoS::AtLeastOnce };
+                            let pub_opts = PublicationOptions {
+                                retain,
+                                topic: pub_topic,
+                                qos: QoS::AtLeastOnce,
+                            };
                             let _ = client.publish(&pub_opts, payload.as_bytes().into()).await;
                         }
                     }

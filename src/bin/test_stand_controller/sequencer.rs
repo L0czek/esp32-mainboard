@@ -26,16 +26,10 @@ enum SequencerMessage {
     BuzzerComplete,
 }
 
-static SEQUENCER_CHANNEL: Channel<
-    CriticalSectionRawMutex,
-    SequencerMessage,
-    4,
-> = Channel::new();
+static SEQUENCER_CHANNEL: Channel<CriticalSectionRawMutex, SequencerMessage, 4> = Channel::new();
 
-static FIRE_ACTIVATE: Signal<CriticalSectionRawMutex, ()> =
-    Signal::new();
-static FIRE_CANCEL: Signal<CriticalSectionRawMutex, ()> =
-    Signal::new();
+static FIRE_ACTIVATE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static FIRE_CANCEL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 static LAST_ARMED_VALUE: AtomicU8 = AtomicU8::new(0);
 static CURRENT_STATE: AtomicU8 = AtomicU8::new(0);
@@ -108,10 +102,7 @@ fn transition_state(state: &mut StateStatus, new_state: StateStatus) {
     info!("State: {}", new_state.as_str());
 }
 
-fn set_light(
-    light: &mut SignalLight<I2cType>,
-    config: SignalLightConfig,
-) {
+fn set_light(light: &mut SignalLight<I2cType>, config: SignalLightConfig) {
     if let Err(_e) = light.set(config) {
         warn!("Failed to set signal light");
     }
@@ -119,13 +110,8 @@ fn set_light(
 
 #[embassy_executor::task]
 pub async fn fire_sequencer_task(fire_trigger_i2c: I2cType) {
-    let address =
-        pcf857x::SlaveAddr::Alternative(false, false, false);
-    let mut trigger = match FireTrigger::new(
-        fire_trigger_i2c,
-        address,
-        FIRE_TRIGGER_BYTE,
-    ) {
+    let address = pcf857x::SlaveAddr::Alternative(false, false, false);
+    let mut trigger = match FireTrigger::new(fire_trigger_i2c, address, FIRE_TRIGGER_BYTE) {
         Ok(t) => t,
         Err(_e) => {
             warn!("Failed to initialize fire trigger");
@@ -161,14 +147,9 @@ pub async fn fire_sequencer_task(fire_trigger_i2c: I2cType) {
 }
 
 #[embassy_executor::task]
-pub async fn state_sequencer_task(
-    mut armed_pin: Input<'static>,
-    signal_light_i2c: I2cType,
-) {
-    let address =
-        pcf857x::SlaveAddr::Alternative(false, false, true);
-    let mut light = match SignalLight::new(signal_light_i2c, address)
-    {
+pub async fn state_sequencer_task(mut armed_pin: Input<'static>, signal_light_i2c: I2cType) {
+    let address = pcf857x::SlaveAddr::Alternative(false, false, true);
+    let mut light = match SignalLight::new(signal_light_i2c, address) {
         Ok(light) => light,
         Err(_e) => {
             warn!("Failed to initialize signal light");
@@ -178,31 +159,30 @@ pub async fn state_sequencer_task(
 
     let mut state = StateStatus::Armed;
     store_state(state);
-    set_light(&mut light, SignalLightConfig {
-        green: true,
-        ..SignalLightConfig::default()
-    });
+    set_light(
+        &mut light,
+        SignalLightConfig {
+            green: true,
+            ..SignalLightConfig::default()
+        },
+    );
     info!("State sequencer initialized: ARMED");
 
     loop {
-        match select(
-            SEQUENCER_CHANNEL.receive(),
-            armed_pin.wait_for_any_edge(),
-        )
-        .await
-        {
+        match select(SEQUENCER_CHANNEL.receive(), armed_pin.wait_for_any_edge()).await {
             Either::First(msg) => match msg {
                 SequencerMessage::Command(cmd) => {
-                    handle_command(
-                        cmd, &mut state, &armed_pin, &mut light,
-                    );
+                    handle_command(cmd, &mut state, &armed_pin, &mut light);
                 }
                 SequencerMessage::BuzzerComplete => {
                     if state == StateStatus::Fire {
-                        set_light(&mut light, SignalLightConfig {
-                            red: true,
-                            ..SignalLightConfig::default()
-                        });
+                        set_light(
+                            &mut light,
+                            SignalLightConfig {
+                                red: true,
+                                ..SignalLightConfig::default()
+                            },
+                        );
                     }
                 }
             },
@@ -223,60 +203,59 @@ fn handle_command(
         StateCommand::Fire => {
             if *state != StateStatus::Armed {
                 warn!("FIRE rejected: not in ARMED state");
-                queue::publish_command_log(
-                    "FIRE rejected: not in ARMED state",
-                );
+                queue::publish_command_log("FIRE rejected: not in ARMED state");
                 return;
             }
             if !is_safety_armed(armed_pin) {
                 warn!("FIRE rejected: safety switch not armed");
-                queue::publish_command_log(
-                    "FIRE rejected: safety switch not armed",
-                );
+                queue::publish_command_log("FIRE rejected: safety switch not armed");
                 return;
             }
 
             transition_state(state, StateStatus::Fire);
-            set_light(light, SignalLightConfig {
-                red: true,
-                buzzer: true,
-                ..SignalLightConfig::default()
-            });
+            set_light(
+                light,
+                SignalLightConfig {
+                    red: true,
+                    buzzer: true,
+                    ..SignalLightConfig::default()
+                },
+            );
             camera_shutter::trigger_shutter();
             FIRE_ACTIVATE.signal(());
         }
         StateCommand::FireEnd => {
             if *state != StateStatus::Fire {
                 warn!("FIRE_END rejected: not in FIRE state");
-                queue::publish_command_log(
-                    "FIRE_END rejected: not in FIRE state",
-                );
+                queue::publish_command_log("FIRE_END rejected: not in FIRE state");
                 return;
             }
             FIRE_CANCEL.signal(());
             camera_shutter::trigger_shutter();
             transition_state(state, StateStatus::PostFire);
-            set_light(light, SignalLightConfig {
-                green: true,
-                red: true,
-                ..SignalLightConfig::default()
-            });
+            set_light(
+                light,
+                SignalLightConfig {
+                    green: true,
+                    red: true,
+                    ..SignalLightConfig::default()
+                },
+            );
         }
         StateCommand::FireReset => {
             if *state != StateStatus::PostFire {
-                warn!(
-                    "FIRE_RESET rejected: not in POSTFIRE state"
-                );
-                queue::publish_command_log(
-                    "FIRE_RESET rejected: not in POSTFIRE state",
-                );
+                warn!("FIRE_RESET rejected: not in POSTFIRE state");
+                queue::publish_command_log("FIRE_RESET rejected: not in POSTFIRE state");
                 return;
             }
             transition_state(state, StateStatus::Armed);
-            set_light(light, SignalLightConfig {
-                green: true,
-                ..SignalLightConfig::default()
-            });
+            set_light(
+                light,
+                SignalLightConfig {
+                    green: true,
+                    ..SignalLightConfig::default()
+                },
+            );
         }
     }
 }
