@@ -82,6 +82,7 @@ fn cmd_decode(input: &PathBuf, separator: u8) -> Result<()> {
             Ok(Some(packet)) => {
                 serde_json::to_writer(&mut writer, &packet)?;
                 writer.write_all(b"\n")?;
+                writer.flush()?;  // flushing here so that the error messages are interleaved with the output properly
                 count += 1;
             }
             Ok(None) => break,
@@ -90,6 +91,9 @@ fn cmd_decode(input: &PathBuf, separator: u8) -> Result<()> {
             }
             Err(DecodeError::MissingTimeSync { packet_type }) => {
                 eprintln!("warning: dropping {packet_type} packet before first timing sync");
+            }
+            Err(DecodeError::UnknownPacketId { id, offset }) => {
+                eprintln!("warning: unknown packet id {id:#04x} at offset {offset}, skipping");
             }
             Err(err) => return Err(err.into()),
         }

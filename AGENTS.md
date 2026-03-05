@@ -8,6 +8,7 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
 - `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (20Hz one-shot + shutdown, 20-sample batched MQTT publish).
 - `src/bin/tmp107_sensor_test/main.rs`: standalone TMP107 diagnostic binary (discover chain, one-shot read, log values, blink LED pattern).
+- `src/bin/blackbox_uart_counter/main.rs`: standalone UART1 TX debug binary that sends incrementing `u32` values on blackbox pins.
 - `src/bin/test_stand_controller/mqtt/client.rs`: DNS, TCP, MQTT session, command subscribe, event/select loop.
 - `src/bin/test_stand_controller/mqtt/queue.rs`: global outbound queue and public publish API.
 - `src/bin/test_stand_controller/mqtt/sensors/`: binary sensor/status payload types + encoders.
@@ -53,9 +54,11 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 - `cargo clippy --bin test_stand_controller -- -D warnings`: lint this binary strictly.
 - `cargo check --bin tmp107_sensor_test`: fast compile check for the standalone TMP107 test target.
 - `cargo clippy --bin tmp107_sensor_test -- -D warnings`: lint the standalone TMP107 test target strictly.
+- `cargo check --bin blackbox_uart_counter`: fast compile check for UART blackbox receiver debug target.
 - `cargo espflash --release --bin test_stand_controller /dev/ttyUSB0`: flash device (update serial path).
 - `cargo run --bin test_stand_controller`: probe-run style flash/run flow when configured.
 - `cargo run --bin tmp107_sensor_test`: flash/run the standalone TMP107 diagnostic loop when configured.
+- `cargo run --bin blackbox_uart_counter`: flash/run UART blackbox counter stream for receiver debug.
 
 ## Current Implementation Status (test_stand_controller)
 - Boot sequence is implemented: RTT logging, Embassy runtime startup, heap allocation, board pin mapping, shared I2C bus init.

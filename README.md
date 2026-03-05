@@ -4,7 +4,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 
 ## Repository layout
 
-- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`, `tmp107_sensor_test`).
+- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`, `tmp107_sensor_test`, `blackbox_uart_counter`).
 - `rust-toolchain.toml` — pinned Rust toolchain for the project.
 - `scripts/` — helper scripts for common local workflows.
 - `src/` — library and binary sources:
@@ -16,6 +16,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
     - `empty/` — minimal/empty binary.
     - `test_stand_controller/` — test stand firmware (power, WiFi, MQTT command + sensor pipeline).
     - `tmp107_sensor_test/` — standalone TMP107 chain test (discover, read, log, LED blink loop).
+    - `blackbox_uart_counter/` — UART1 (D4 TX) counter generator for blackbox receiver debugging.
 
 ## What this repo provides
 
@@ -46,6 +47,12 @@ To build the TMP107 sensor test binary:
 
 ```sh
 cargo build --release --bin tmp107_sensor_test
+```
+
+To build the blackbox UART counter debug binary:
+
+```sh
+cargo build --release --bin blackbox_uart_counter
 ```
 
 `build.rs` auto-loads `.env` at compile time for any `env!` config values.
@@ -108,6 +115,18 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
 - Slow ADC (`0x02`), temperature (`0x03`), digital (`0x04`), and servo (`0x05`) packets carry
   values only (no embedded per-packet timestamp).
 - `tools/blackbox-decoder` decodes this stream into NDJSON, including `timing_sync` events.
+
+### UART Receiver Debug Target
+
+- `blackbox_uart_counter` transmits incrementing `u32` values (little-endian) over
+  the same blackbox interface: UART1 TX on `D4` at `3_000_000` baud.
+- Use it to validate external UART receiver wiring and framing without the rest
+  of the test stand pipeline.
+- Run with:
+
+```sh
+cargo run --bin blackbox_uart_counter
+```
 
 ## TMP107 Sensor Test
 

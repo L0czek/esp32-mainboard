@@ -78,6 +78,7 @@ pub struct PacketDecoder<R: Read> {
     separator_byte: u8,
     simulated_time_ms: Option<u32>,
     fast_interval_ms: Option<u16>,
+    fast_packets_since_timing_sync: u32,
     window: VecDeque<u8>,
     end_of_stream: bool,
 }
@@ -90,6 +91,7 @@ impl<R: Read> PacketDecoder<R> {
             separator_byte,
             simulated_time_ms: None,
             fast_interval_ms: None,
+            fast_packets_since_timing_sync: 0,
             window: VecDeque::with_capacity(WINDOW_SIZE),
             end_of_stream: false,
         }
@@ -244,6 +246,7 @@ impl<R: Read> PacketDecoder<R> {
         let fast_interval_ms = self.read_u16_le()?;
         self.simulated_time_ms = Some(timestamp_ms);
         self.fast_interval_ms = Some(fast_interval_ms);
+        self.fast_packets_since_timing_sync = 0;
         Ok(PacketData::TimingSync {
             timestamp_ms,
             fast_interval_ms,
@@ -255,12 +258,16 @@ impl<R: Read> PacketDecoder<R> {
         let tank = self.read_u16_le()?;
         let combustion = self.read_u16_le()?;
 
-        let timestamp_ms = self.current_time_ms("fast_adc")?;
+        let mut timestamp_ms = self.current_time_ms("fast_adc")?;
         let fast_interval_ms = self.fast_interval_ms.ok_or(DecodeError::MissingTimeSync {
             packet_type: "fast_adc",
         })?;
 
-        self.simulated_time_ms = Some(timestamp_ms.wrapping_add(fast_interval_ms as u32));
+        if self.fast_packets_since_timing_sync > 0 {
+            timestamp_ms = timestamp_ms.wrapping_add(fast_interval_ms as u32);
+            self.simulated_time_ms = Some(timestamp_ms);
+        }
+        self.fast_packets_since_timing_sync = self.fast_packets_since_timing_sync.wrapping_add(1);
 
         Ok(PacketData::FastAdc {
             timestamp_ms,
@@ -324,7 +331,7 @@ impl<R: Read> PacketDecoder<R> {
 mod tests {
     use std::io::Cursor;
 
-    use crate::packet::{ID_DIGITAL, ID_FAST_ADC, ID_SLOW_ADC, PacketData};
+    use crate::packet::{ID_DIGITAL, ID_FAST_ADC, ID_SLOW_ADC, ID_TEMPERATURE, PacketData};
 
     use super::{DecodeError, PacketDecoder, TIMING_SYNC_SIGNATURE};
 
@@ -442,6 +449,79 @@ mod tests {
                 assert_eq!(value, 1);
             }
             other => panic!("unexpected fourth packet: {:?}", other),
+        }
+
+        let end = decoder.next_packet().expect("decode eof");
+        assert!(end.is_none());
+    }
+
+    #[test]
+    fn fast_adc_only_advances_time_from_second_sample_after_sync() {
+        let mut bytes = Vec::new();
+        push_timing_sync(&mut bytes, 1_000, 5);
+
+        bytes.push(ID_FAST_ADC);
+        push_u16_le(&mut bytes, 11);
+        push_u16_le(&mut bytes, 22);
+        push_u16_le(&mut bytes, 33);
+
+        bytes.push(ID_TEMPERATURE);
+        bytes.push(7);
+        push_u16_le(&mut bytes, 444);
+
+        bytes.push(ID_FAST_ADC);
+        push_u16_le(&mut bytes, 44);
+        push_u16_le(&mut bytes, 55);
+        push_u16_le(&mut bytes, 66);
+
+        bytes.push(ID_DIGITAL);
+        bytes.push(1);
+
+        let mut decoder = PacketDecoder::new(Cursor::new(bytes), 0xAA);
+
+        let first = decoder.next_packet().expect("decode timing sync");
+        match first {
+            Some(PacketData::TimingSync {
+                timestamp_ms,
+                fast_interval_ms,
+            }) => {
+                assert_eq!(timestamp_ms, 1_000);
+                assert_eq!(fast_interval_ms, 5);
+            }
+            other => panic!("unexpected first packet: {:?}", other),
+        }
+
+        let second = decoder.next_packet().expect("decode first fast adc");
+        match second {
+            Some(PacketData::FastAdc { timestamp_ms, .. }) => {
+                assert_eq!(timestamp_ms, 1_000);
+            }
+            other => panic!("unexpected second packet: {:?}", other),
+        }
+
+        let third = decoder.next_packet().expect("decode temperature");
+        match third {
+            Some(PacketData::Temperature { timestamp_ms, .. }) => {
+                assert_eq!(timestamp_ms, 1_000);
+            }
+            other => panic!("unexpected third packet: {:?}", other),
+        }
+
+        let fourth = decoder.next_packet().expect("decode second fast adc");
+        match fourth {
+            Some(PacketData::FastAdc { timestamp_ms, .. }) => {
+                assert_eq!(timestamp_ms, 1_005);
+            }
+            other => panic!("unexpected fourth packet: {:?}", other),
+        }
+
+        let fifth = decoder.next_packet().expect("decode digital");
+        match fifth {
+            Some(PacketData::Digital { timestamp_ms, value }) => {
+                assert_eq!(timestamp_ms, 1_005);
+                assert_eq!(value, 1);
+            }
+            other => panic!("unexpected fifth packet: {:?}", other),
         }
 
         let end = decoder.next_packet().expect("decode eof");
