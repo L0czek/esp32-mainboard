@@ -86,7 +86,6 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
         for (sensor, value) in read_buf.iter().copied().enumerate().take(count) {
             crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Temperature {
                 sensor_id: (sensor + 1) as u8,
-                timestamp_ms: now,
                 value,
             });
         }

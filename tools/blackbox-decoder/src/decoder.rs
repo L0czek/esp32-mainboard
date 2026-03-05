@@ -1,13 +1,70 @@
 use std::io::Read;
 
-use anyhow::{Context, Result, bail};
+use crate::packet::{
+    ID_DIGITAL, ID_FAST_ADC, ID_PADDING, ID_SERVO, ID_SLOW_ADC, ID_TEMPERATURE, ID_TIMING_SYNC,
+    PacketData,
+};
 
-use crate::packet::{ID_DIGITAL, ID_FAST_ADC, ID_PADDING, ID_SERVO, ID_SLOW_ADC, ID_TEMPERATURE, PacketData};
+pub type Result<T> = std::result::Result<T, DecodeError>;
+
+#[derive(Debug)]
+pub enum DecodeError {
+    Io {
+        op: &'static str,
+        source: std::io::Error,
+    },
+    TruncatedPayload {
+        offset: u64,
+        needed: usize,
+        source: std::io::Error,
+    },
+    UnknownPacketId {
+        id: u8,
+        offset: u64,
+    },
+    MissingTimeSync {
+        packet_type: &'static str,
+    },
+}
+
+impl core::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DecodeError::Io { op, source } => {
+                write!(f, "{op}: {source}")
+            }
+            DecodeError::TruncatedPayload { offset, needed, .. } => {
+                write!(
+                    f,
+                    "truncated payload at offset {offset} (needed {needed} bytes)"
+                )
+            }
+            DecodeError::UnknownPacketId { id, offset } => {
+                write!(f, "unknown packet ID {id:#04x} at offset {offset}")
+            }
+            DecodeError::MissingTimeSync { packet_type } => {
+                write!(f, "{packet_type} before timing_sync: missing timing sync")
+            }
+        }
+    }
+}
+
+impl std::error::Error for DecodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            DecodeError::Io { source, .. } => Some(source),
+            DecodeError::TruncatedPayload { source, .. } => Some(source),
+            DecodeError::UnknownPacketId { .. } | DecodeError::MissingTimeSync { .. } => None,
+        }
+    }
+}
 
 pub struct PacketDecoder<R: Read> {
     reader: R,
     offset: u64,
     separator_byte: u8,
+    simulated_time_ms: Option<u32>,
+    fast_interval_ms: Option<u16>,
 }
 
 impl<R: Read> PacketDecoder<R> {
@@ -16,6 +73,8 @@ impl<R: Read> PacketDecoder<R> {
             reader,
             offset: 0,
             separator_byte,
+            simulated_time_ms: None,
+            fast_interval_ms: None,
         }
     }
 
@@ -27,7 +86,12 @@ impl<R: Read> PacketDecoder<R> {
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     return Ok(None);
                 }
-                Err(e) => return Err(e).context("reading packet ID"),
+                Err(source) => {
+                    return Err(DecodeError::Io {
+                        op: "reading packet ID",
+                        source,
+                    });
+                }
             }
             let id = id_buf[0];
             self.offset += 1;
@@ -40,6 +104,7 @@ impl<R: Read> PacketDecoder<R> {
             }
 
             match id {
+                ID_TIMING_SYNC => return self.decode_timing_sync().map(Some),
                 ID_FAST_ADC => return self.decode_fast_adc().map(Some),
                 ID_SLOW_ADC => return self.decode_slow_adc().map(Some),
                 ID_TEMPERATURE => {
@@ -48,21 +113,23 @@ impl<R: Read> PacketDecoder<R> {
                 ID_DIGITAL => return self.decode_digital().map(Some),
                 ID_SERVO => return self.decode_servo().map(Some),
                 _ => {
-                    bail!("unknown packet ID {id:#04x} at offset {}", self.offset - 1,);
+                    return Err(DecodeError::UnknownPacketId {
+                        id,
+                        offset: self.offset - 1,
+                    });
                 }
             }
         }
     }
 
     fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        self.reader.read_exact(buf).with_context(|| {
-            format!(
-                "truncated payload at offset {} \
-                     (needed {} bytes)",
-                self.offset,
-                buf.len(),
-            )
-        })?;
+        if let Err(source) = self.reader.read_exact(buf) {
+            return Err(DecodeError::TruncatedPayload {
+                offset: self.offset,
+                needed: buf.len(),
+                source,
+            });
+        }
         self.offset += buf.len() as u64;
         Ok(())
     }
@@ -85,11 +152,29 @@ impl<R: Read> PacketDecoder<R> {
         Ok(u32::from_le_bytes(buf))
     }
 
-    fn decode_fast_adc(&mut self) -> Result<PacketData> {
+    fn decode_timing_sync(&mut self) -> Result<PacketData> {
         let timestamp_ms = self.read_u32_le()?;
+        let fast_interval_ms = self.read_u16_le()?;
+        self.simulated_time_ms = Some(timestamp_ms);
+        self.fast_interval_ms = Some(fast_interval_ms);
+        Ok(PacketData::TimingSync {
+            timestamp_ms,
+            fast_interval_ms,
+        })
+    }
+
+    fn decode_fast_adc(&mut self) -> Result<PacketData> {
         let tensometer = self.read_u16_le()?;
         let tank = self.read_u16_le()?;
         let combustion = self.read_u16_le()?;
+
+        let timestamp_ms = self.current_time_ms("fast_adc")?;
+        let fast_interval_ms = self.fast_interval_ms.ok_or(DecodeError::MissingTimeSync {
+            packet_type: "fast_adc",
+        })?;
+
+        self.simulated_time_ms = Some(timestamp_ms.wrapping_add(fast_interval_ms as u32));
+
         Ok(PacketData::FastAdc {
             timestamp_ms,
             tensometer,
@@ -99,11 +184,11 @@ impl<R: Read> PacketDecoder<R> {
     }
 
     fn decode_slow_adc(&mut self) -> Result<PacketData> {
-        let timestamp_ms = self.read_u32_le()?;
         let bat_stand = self.read_u16_le()?;
         let bat_comp = self.read_u16_le()?;
         let boost = self.read_u16_le()?;
         let starter = self.read_u16_le()?;
+        let timestamp_ms = self.current_time_ms("slow_adc")?;
         Ok(PacketData::SlowAdc {
             timestamp_ms,
             bat_stand,
@@ -114,9 +199,9 @@ impl<R: Read> PacketDecoder<R> {
     }
 
     fn decode_temperature(&mut self) -> Result<PacketData> {
-        let timestamp_ms = self.read_u32_le()?;
         let sensor_id = self.read_u8()?;
         let value = self.read_u16_le()?;
+        let timestamp_ms = self.current_time_ms("temperature")?;
         Ok(PacketData::Temperature {
             timestamp_ms,
             sensor_id,
@@ -125,8 +210,8 @@ impl<R: Read> PacketDecoder<R> {
     }
 
     fn decode_digital(&mut self) -> Result<PacketData> {
-        let timestamp_ms = self.read_u32_le()?;
         let value = self.read_u8()?;
+        let timestamp_ms = self.current_time_ms("digital")?;
         Ok(PacketData::Digital {
             timestamp_ms,
             value,
@@ -134,11 +219,16 @@ impl<R: Read> PacketDecoder<R> {
     }
 
     fn decode_servo(&mut self) -> Result<PacketData> {
-        let timestamp_ms = self.read_u32_le()?;
         let ticks = self.read_u16_le()?;
+        let timestamp_ms = self.current_time_ms("servo")?;
         Ok(PacketData::Servo {
             timestamp_ms,
             ticks,
         })
+    }
+
+    fn current_time_ms(&self, packet_type: &'static str) -> Result<u32> {
+        self.simulated_time_ms
+            .ok_or(DecodeError::MissingTimeSync { packet_type })
     }
 }

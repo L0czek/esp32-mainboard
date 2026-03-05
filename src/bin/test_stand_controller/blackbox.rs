@@ -11,6 +11,7 @@ const ID_SLOW_ADC: u8 = 0x02;
 const ID_TEMPERATURE: u8 = 0x03;
 const ID_DIGITAL: u8 = 0x04;
 const ID_SERVO: u8 = 0x05;
+const ID_TIMING_SYNC: u8 = 0x06;
 
 const CHANNEL_CAPACITY: usize = 128;
 
@@ -18,19 +19,9 @@ static BLACKBOX_CHANNEL: Channel<CriticalSectionRawMutex, BlackboxPacket, CHANNE
     Channel::new();
 
 pub enum BlackboxPacket {
-    Temperature {
-        sensor_id: u8,
-        timestamp_ms: u32,
-        value: u16,
-    },
-    Digital {
-        timestamp_ms: u32,
-        value: u8,
-    },
-    Servo {
-        timestamp_ms: u32,
-        ticks: u16,
-    },
+    Temperature { sensor_id: u8, value: u16 },
+    Digital { value: u8 },
+    Servo { ticks: u16 },
 }
 
 pub fn send_to_blackbox(packet: BlackboxPacket) {
@@ -51,66 +42,52 @@ impl BlackboxWriter {
         Self { tx }
     }
 
-    pub fn write_fast_adc(&mut self, ts: u32, tensometer: u16, tank: u16, combustion: u16) {
-        let mut buf = [0u8; 11];
-        buf[0] = ID_FAST_ADC;
-        buf[1..5].copy_from_slice(&ts.to_le_bytes());
-        buf[5..7].copy_from_slice(&tensometer.to_le_bytes());
-        buf[7..9].copy_from_slice(&tank.to_le_bytes());
-        buf[9..11].copy_from_slice(&combustion.to_le_bytes());
+    pub fn write_timing_sync(&mut self, timestamp_ms: u32, fast_interval_ms: u16) {
+        let mut buf = [0u8; 7];
+        buf[0] = ID_TIMING_SYNC;
+        buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
+        buf[5..7].copy_from_slice(&fast_interval_ms.to_le_bytes());
         self.write_all(&buf);
     }
 
-    pub fn write_slow_adc(
-        &mut self,
-        ts: u32,
-        bat_stand: u16,
-        bat_comp: u16,
-        boost: u16,
-        starter: u16,
-    ) {
-        let mut buf = [0u8; 13];
+    pub fn write_fast_adc(&mut self, tensometer: u16, tank: u16, combustion: u16) {
+        let mut buf = [0u8; 7];
+        buf[0] = ID_FAST_ADC;
+        buf[1..3].copy_from_slice(&tensometer.to_le_bytes());
+        buf[3..5].copy_from_slice(&tank.to_le_bytes());
+        buf[5..7].copy_from_slice(&combustion.to_le_bytes());
+        self.write_all(&buf);
+    }
+
+    pub fn write_slow_adc(&mut self, bat_stand: u16, bat_comp: u16, boost: u16, starter: u16) {
+        let mut buf = [0u8; 9];
         buf[0] = ID_SLOW_ADC;
-        buf[1..5].copy_from_slice(&ts.to_le_bytes());
-        buf[5..7].copy_from_slice(&bat_stand.to_le_bytes());
-        buf[7..9].copy_from_slice(&bat_comp.to_le_bytes());
-        buf[9..11].copy_from_slice(&boost.to_le_bytes());
-        buf[11..13].copy_from_slice(&starter.to_le_bytes());
+        buf[1..3].copy_from_slice(&bat_stand.to_le_bytes());
+        buf[3..5].copy_from_slice(&bat_comp.to_le_bytes());
+        buf[5..7].copy_from_slice(&boost.to_le_bytes());
+        buf[7..9].copy_from_slice(&starter.to_le_bytes());
         self.write_all(&buf);
     }
 
     pub fn write_packet(&mut self, packet: &BlackboxPacket) {
         match packet {
-            BlackboxPacket::Temperature {
-                sensor_id,
-                timestamp_ms,
-                value,
-            } => {
-                let mut buf = [0u8; 8];
+            BlackboxPacket::Temperature { sensor_id, value } => {
+                let mut buf = [0u8; 4];
                 buf[0] = ID_TEMPERATURE;
-                buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
-                buf[5] = *sensor_id;
-                buf[6..8].copy_from_slice(&value.to_le_bytes());
+                buf[1] = *sensor_id;
+                buf[2..4].copy_from_slice(&value.to_le_bytes());
                 self.write_all(&buf);
             }
-            BlackboxPacket::Digital {
-                timestamp_ms,
-                value,
-            } => {
-                let mut buf = [0u8; 6];
+            BlackboxPacket::Digital { value } => {
+                let mut buf = [0u8; 2];
                 buf[0] = ID_DIGITAL;
-                buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
-                buf[5] = *value;
+                buf[1] = *value;
                 self.write_all(&buf);
             }
-            BlackboxPacket::Servo {
-                timestamp_ms,
-                ticks,
-            } => {
-                let mut buf = [0u8; 7];
+            BlackboxPacket::Servo { ticks } => {
+                let mut buf = [0u8; 3];
                 buf[0] = ID_SERVO;
-                buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
-                buf[5..7].copy_from_slice(&ticks.to_le_bytes());
+                buf[1..3].copy_from_slice(&ticks.to_le_bytes());
                 self.write_all(&buf);
             }
         }

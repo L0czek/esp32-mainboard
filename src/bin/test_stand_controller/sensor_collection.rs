@@ -109,6 +109,9 @@ async fn collect_and_publish_fast(
     let mut first_timestamp_ms = 0u32;
     let mut last_timestamp_ms = 0u32;
 
+    let batch_start_timestamp_ms = timestamp_ms();
+    blackbox.write_timing_sync(batch_start_timestamp_ms, FAST_SAMPLE_INTERVAL_MS as u16);
+
     let mut ticker = Ticker::every(Duration::from_millis(FAST_SAMPLE_INTERVAL_MS));
     for index in 0..FAST_BATCH_SAMPLES {
         let timestamp_ms = timestamp_ms();
@@ -122,7 +125,6 @@ async fn collect_and_publish_fast(
         pressure_combustion[index] = read_adc_raw(&mut state.adc, &mut state.pressure_combustion);
 
         blackbox.write_fast_adc(
-            timestamp_ms,
             tensometer[index],
             pressure_tank[index],
             pressure_combustion[index],
@@ -199,7 +201,6 @@ fn collect_and_publish_slow(
     );
 
     blackbox.write_slow_adc(
-        battery_stand.timestamp_ms,
         battery_stand.value,
         battery_computer.value,
         boost_voltage.value,

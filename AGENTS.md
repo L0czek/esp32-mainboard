@@ -103,9 +103,13 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
   an external recording device for disaster-proof data retention. Operates in
   parallel with MQTT — both receive the same data independently.
   - Packet format: `ID(1) + payload` with fixed or self-describing lengths.
-  - Packet IDs: 0x01 Fast ADC (3ch, 11B), 0x02 Slow ADC (4ch, 13B), 0x03
-    Temperature (per-sensor, 8B: `ts:u32 + sensor_id:u8 + raw:u16`), 0x04
-    Digital (6B), 0x05 Servo (7B). All multi-byte values little-endian.
+  - Packet IDs: 0x06 Timing Sync (7B: `timestamp_ms:u32 + fast_interval_ms:u16`),
+    0x01 Fast ADC (3ch, 7B), 0x02 Slow ADC (4ch, 9B), 0x03 Temperature
+    (per-sensor, 4B: `sensor_id:u8 + raw:u16`), 0x04 Digital (2B),
+    0x05 Servo (3B). All multi-byte values little-endian.
+  - `sensor_collection_task` sends one Timing Sync packet at the start of each
+    fast batch before the first Fast ADC packet. Other packet types carry no
+    embedded timestamp and must be time-aligned from Timing Sync + fast cadence.
   - UART1 TX owned by `sensor_collection_task` (blocking writes to hardware FIFO).
     Other tasks send via `BLACKBOX_CHANNEL` (embassy_sync Channel, capacity 32);
     sensor task drains it every ~10ms.

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
-use crate::decoder::PacketDecoder;
+use crate::decoder::{DecodeError, PacketDecoder};
 
 /// Blackbox SD card tool — decode binary data or format cards.
 #[derive(Parser)]
@@ -62,10 +62,10 @@ fn main() -> Result<()> {
 }
 
 fn cmd_decode(input: &PathBuf, separator: u8) -> Result<()> {
-    if separator == 0x00 || (0x01..=0x05).contains(&separator) {
+    if separator == 0x00 || (0x01..=0x06).contains(&separator) {
         bail!(
             "separator byte {separator:#04x} conflicts with padding (0x00) \
-             or packet IDs (0x01-0x05)",
+             or packet IDs (0x01-0x06)",
         );
     }
 
@@ -77,10 +77,19 @@ fn cmd_decode(input: &PathBuf, separator: u8) -> Result<()> {
     let mut writer = BufWriter::new(out);
     let mut count: u64 = 0;
 
-    while let Some(packet) = decoder.next_packet()? {
-        serde_json::to_writer(&mut writer, &packet)?;
-        writer.write_all(b"\n")?;
-        count += 1;
+    loop {
+        match decoder.next_packet() {
+            Ok(Some(packet)) => {
+                serde_json::to_writer(&mut writer, &packet)?;
+                writer.write_all(b"\n")?;
+                count += 1;
+            }
+            Ok(None) => break,
+            Err(DecodeError::MissingTimeSync { packet_type }) => {
+                eprintln!("warning: dropping {packet_type} packet before first timing sync");
+            }
+            Err(err) => return Err(err.into()),
+        }
     }
 
     writer.flush()?;

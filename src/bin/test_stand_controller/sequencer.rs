@@ -65,10 +65,7 @@ pub fn republish_armed_state() {
     let ts = timestamp_ms();
     let packet = ArmedPacket::new(ts, value);
     let _ = crate::mqtt::publish_armed_sensor(packet);
-    crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital {
-        timestamp_ms: ts,
-        value,
-    });
+    crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital { value });
 }
 
 fn store_state(status: StateStatus) {

@@ -5,11 +5,16 @@ pub const ID_SLOW_ADC: u8 = 0x02;
 pub const ID_TEMPERATURE: u8 = 0x03;
 pub const ID_DIGITAL: u8 = 0x04;
 pub const ID_SERVO: u8 = 0x05;
+pub const ID_TIMING_SYNC: u8 = 0x06;
 
 pub const ID_PADDING: u8 = 0x00;
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PacketData {
+    TimingSync {
+        timestamp_ms: u32,
+        fast_interval_ms: u16,
+    },
     FastAdc {
         timestamp_ms: u32,
         tensometer: u16,

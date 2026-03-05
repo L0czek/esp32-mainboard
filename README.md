@@ -97,6 +97,16 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
 - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
   direction control via D0 wired to UART DTR.
 
+## Blackbox Stream (`test_stand_controller`)
+
+- UART1 blackbox output uses compact binary packets (`ID + payload`) for offline capture.
+- Packet timestamps are centralized in a dedicated Timing Sync packet (`0x06`) that is emitted
+  once at the start of each fast ADC batch.
+- Fast ADC packets (`0x01`) are emitted at a fixed 1 ms cadence after each Timing Sync packet.
+- Slow ADC (`0x02`), temperature (`0x03`), digital (`0x04`), and servo (`0x05`) packets carry
+  values only (no embedded per-packet timestamp).
+- `tools/blackbox-decoder` decodes this stream into NDJSON, including `timing_sync` events.
+
 ## TMP107 Sensor Test
 
 - `tmp107_sensor_test` is a dedicated diagnostic binary for the TMP107 daisy chain on UART0.
