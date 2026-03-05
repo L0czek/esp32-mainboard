@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::{collections::VecDeque, io::ErrorKind};
 
 use crate::packet::{
     ID_DIGITAL, ID_FAST_ADC, ID_PADDING, ID_SERVO, ID_SLOW_ADC, ID_TEMPERATURE, ID_TIMING_SYNC,
@@ -59,12 +60,26 @@ impl std::error::Error for DecodeError {
     }
 }
 
+const TIMING_SYNC_SIGNATURE: [u8; 8] = [
+    ID_TIMING_SYNC,
+    b'T',
+    b'I',
+    b'M',
+    b'E',
+    b'S',
+    b'Y',
+    b'N',
+];
+const WINDOW_SIZE: usize = TIMING_SYNC_SIGNATURE.len();
+
 pub struct PacketDecoder<R: Read> {
     reader: R,
     offset: u64,
     separator_byte: u8,
     simulated_time_ms: Option<u32>,
     fast_interval_ms: Option<u16>,
+    window: VecDeque<u8>,
+    end_of_stream: bool,
 }
 
 impl<R: Read> PacketDecoder<R> {
@@ -75,26 +90,16 @@ impl<R: Read> PacketDecoder<R> {
             separator_byte,
             simulated_time_ms: None,
             fast_interval_ms: None,
+            window: VecDeque::with_capacity(WINDOW_SIZE),
+            end_of_stream: false,
         }
     }
 
     pub fn next_packet(&mut self) -> Result<Option<PacketData>> {
         loop {
-            let mut id_buf = [0u8; 1];
-            match self.reader.read_exact(&mut id_buf) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(None);
-                }
-                Err(source) => {
-                    return Err(DecodeError::Io {
-                        op: "reading packet ID",
-                        source,
-                    });
-                }
-            }
-            let id = id_buf[0];
-            self.offset += 1;
+            let Some(id) = self.try_read_byte_raw()? else {
+                return Ok(None);
+            };
 
             if id == ID_PADDING {
                 continue;
@@ -103,34 +108,102 @@ impl<R: Read> PacketDecoder<R> {
                 return Ok(Some(PacketData::ExperimentSeparator {}));
             }
 
-            match id {
-                ID_TIMING_SYNC => return self.decode_timing_sync().map(Some),
-                ID_FAST_ADC => return self.decode_fast_adc().map(Some),
-                ID_SLOW_ADC => return self.decode_slow_adc().map(Some),
-                ID_TEMPERATURE => {
-                    return self.decode_temperature().map(Some);
-                }
-                ID_DIGITAL => return self.decode_digital().map(Some),
-                ID_SERVO => return self.decode_servo().map(Some),
-                _ => {
-                    return Err(DecodeError::UnknownPacketId {
-                        id,
-                        offset: self.offset - 1,
-                    });
-                }
-            }
+            return match id {
+                ID_TIMING_SYNC => self.decode_timing_sync().map(Some),
+                ID_FAST_ADC => self.decode_fast_adc().map(Some),
+                ID_SLOW_ADC => self.decode_slow_adc().map(Some),
+                ID_TEMPERATURE => self.decode_temperature().map(Some),
+                ID_DIGITAL => self.decode_digital().map(Some),
+                ID_SERVO => self.decode_servo().map(Some),
+                _ => Err(DecodeError::UnknownPacketId {
+                    id,
+                    offset: self.offset - 1,
+                }),
+            };
         }
     }
 
-    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        if let Err(source) = self.reader.read_exact(buf) {
+    fn read_byte_from_input_stream(&mut self) -> Result<Option<u8>> {
+        let mut buf = [0u8; 1];
+        match self.reader.read(&mut buf) {
+            Ok(0) => Ok(None),
+            Ok(_) => Ok(Some(buf[0])),
+            Err(source) => Err(DecodeError::Io {
+                op: "reading input stream",
+                source,
+            }),
+        }
+    }
+
+    fn refill_read_buffer(&mut self) -> Result<()> {
+        while !self.end_of_stream && self.window.len() < WINDOW_SIZE {
+            match self.read_byte_from_input_stream()? {
+                Some(byte) => self.window.push_back(byte),
+                None => self.end_of_stream = true,
+            }
+        }
+        Ok(())
+    }
+
+    fn read_buffer_matches_timing_sync_signature(&self) -> bool {
+        self.window.len() == TIMING_SYNC_SIGNATURE.len()
+            && self.window.iter().copied().eq(TIMING_SYNC_SIGNATURE)
+    }
+
+    // Reads one byte from the sliding read buffer without checking for timing sync match.
+    // Returns Ok(None) when the underlying stream reached EOF.
+    fn try_read_byte_raw(&mut self) -> Result<Option<u8>> {
+        self.refill_read_buffer()?;
+        let Some(byte) = self.window.pop_front() else {
+            return Ok(None);
+        };
+        self.offset += 1;
+
+        if !self.end_of_stream {
+            match self.read_byte_from_input_stream()? {
+                Some(next) => self.window.push_back(next),
+                None => self.end_of_stream = true,
+            }
+        }
+
+        Ok(Some(byte))
+    }
+
+    // Reads one byte from the sliding read buffer.
+    // Returns Ok(None) when the underlying stream reached EOF.
+    fn try_read_byte(&mut self) -> Result<Option<u8>> {
+        if self.read_buffer_matches_timing_sync_signature() {
             return Err(DecodeError::TruncatedPayload {
                 offset: self.offset,
-                needed: buf.len(),
-                source,
+                needed: 1,
+                source: std::io::Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "timing sync signature detected inside packet",
+                ),
             });
         }
-        self.offset += buf.len() as u64;
+
+        self.try_read_byte_raw()
+    }
+
+    // Reads one byte from the sliding read buffer.
+    // Returns DecodeError::TruncatedPayload when the underlying stream reached EOF.
+    fn read_byte(&mut self) -> Result<u8> {
+        let Some(byte) = self.try_read_byte()? else {
+            return Err(DecodeError::TruncatedPayload {
+                offset: self.offset,
+                needed: 1,
+                source: std::io::Error::new(ErrorKind::UnexpectedEof, "unexpected end of stream"),
+            });
+        };
+
+        Ok(byte)
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+        for item in buf {
+            *item = self.read_byte()?;
+        }
         Ok(())
     }
 
@@ -153,6 +226,20 @@ impl<R: Read> PacketDecoder<R> {
     }
 
     fn decode_timing_sync(&mut self) -> Result<PacketData> {
+        for expected in TIMING_SYNC_SIGNATURE.iter().copied().skip(1) {
+            let value = self.read_u8()?;
+            if value != expected {
+                return Err(DecodeError::TruncatedPayload {
+                    offset: self.offset - 1,
+                    needed: 1,
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "timing sync marker mismatch",
+                    ),
+                });
+            }
+        }
+
         let timestamp_ms = self.read_u32_le()?;
         let fast_interval_ms = self.read_u16_le()?;
         self.simulated_time_ms = Some(timestamp_ms);
@@ -230,5 +317,134 @@ impl<R: Read> PacketDecoder<R> {
     fn current_time_ms(&self, packet_type: &'static str) -> Result<u32> {
         self.simulated_time_ms
             .ok_or(DecodeError::MissingTimeSync { packet_type })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use crate::packet::{ID_DIGITAL, ID_FAST_ADC, ID_SLOW_ADC, PacketData};
+
+    use super::{DecodeError, PacketDecoder, TIMING_SYNC_SIGNATURE};
+
+    fn push_u16_le(buf: &mut Vec<u8>, value: u16) {
+        buf.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_u32_le(buf: &mut Vec<u8>, value: u32) {
+        buf.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_timing_sync(buf: &mut Vec<u8>, timestamp_ms: u32, fast_interval_ms: u16) {
+        buf.extend_from_slice(&TIMING_SYNC_SIGNATURE);
+        push_u32_le(buf, timestamp_ms);
+        push_u16_le(buf, fast_interval_ms);
+    }
+
+    #[test]
+    fn decodes_timing_sync_and_fast_adc_with_interpolated_timestamp() {
+        let mut bytes = Vec::new();
+        push_timing_sync(&mut bytes, 1_000, 5);
+        bytes.push(ID_FAST_ADC);
+        push_u16_le(&mut bytes, 11);
+        push_u16_le(&mut bytes, 22);
+        push_u16_le(&mut bytes, 33);
+
+        let mut decoder = PacketDecoder::new(Cursor::new(bytes), 0xAA);
+
+        let first = decoder.next_packet().expect("decode timing sync");
+        match first {
+            Some(PacketData::TimingSync {
+                timestamp_ms,
+                fast_interval_ms,
+            }) => {
+                assert_eq!(timestamp_ms, 1_000);
+                assert_eq!(fast_interval_ms, 5);
+            }
+            other => panic!("unexpected first packet: {:?}", other),
+        }
+
+        let second = decoder.next_packet().expect("decode fast adc");
+        match second {
+            Some(PacketData::FastAdc {
+                timestamp_ms,
+                tensometer,
+                tank,
+                combustion,
+            }) => {
+                assert_eq!(timestamp_ms, 1_000);
+                assert_eq!(tensometer, 11);
+                assert_eq!(tank, 22);
+                assert_eq!(combustion, 33);
+            }
+            other => panic!("unexpected second packet: {:?}", other),
+        }
+
+        let end = decoder.next_packet().expect("decode eof");
+        assert!(end.is_none());
+    }
+
+    #[test]
+    fn detects_timing_sync_signature_mid_packet_and_resynchronizes() {
+        let mut bytes = Vec::new();
+        push_timing_sync(&mut bytes, 10_000, 2);
+
+        // Start a slow packet, then inject a timing sync signature in place of payload bytes.
+        bytes.push(ID_SLOW_ADC);
+        bytes.extend_from_slice(&TIMING_SYNC_SIGNATURE);
+        push_u32_le(&mut bytes, 20_000);
+        push_u16_le(&mut bytes, 4);
+
+        // Add one packet after resync to verify stream recovery.
+        bytes.push(ID_DIGITAL);
+        bytes.push(1);
+
+        let mut decoder = PacketDecoder::new(Cursor::new(bytes), 0xAA);
+
+        let first = decoder.next_packet().expect("decode first timing sync");
+        match first {
+            Some(PacketData::TimingSync {
+                timestamp_ms,
+                fast_interval_ms,
+            }) => {
+                assert_eq!(timestamp_ms, 10_000);
+                assert_eq!(fast_interval_ms, 2);
+            }
+            other => panic!("unexpected first packet: {:?}", other),
+        }
+
+        let second = decoder.next_packet();
+        match second {
+            Err(DecodeError::TruncatedPayload { .. }) => {}
+            other => panic!("expected TruncatedPayload, got {:?}", other),
+        }
+
+        let third = decoder.next_packet().expect("decode resynced timing sync");
+        match third {
+            Some(PacketData::TimingSync {
+                timestamp_ms,
+                fast_interval_ms,
+            }) => {
+                assert_eq!(timestamp_ms, 20_000);
+                assert_eq!(fast_interval_ms, 4);
+            }
+            other => panic!("unexpected third packet: {:?}", other),
+        }
+
+        let fourth = decoder.next_packet().expect("decode digital after resync");
+        match fourth {
+            Some(PacketData::Digital {
+                timestamp_ms,
+                value,
+            }) => {
+                assert_eq!(timestamp_ms, 20_000);
+                assert_eq!(value, 1);
+            }
+            other => panic!("unexpected fourth packet: {:?}", other),
+        }
+
+        let end = decoder.next_packet().expect("decode eof");
+        assert!(end.is_none());
     }
 }

@@ -85,6 +85,9 @@ fn cmd_decode(input: &PathBuf, separator: u8) -> Result<()> {
                 count += 1;
             }
             Ok(None) => break,
+            Err(DecodeError::TruncatedPayload { offset, .. }) => {
+                eprintln!("warning: truncated packet at offset {offset}, resynchronizing");
+            }
             Err(DecodeError::MissingTimeSync { packet_type }) => {
                 eprintln!("warning: dropping {packet_type} packet before first timing sync");
             }

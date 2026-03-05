@@ -12,6 +12,7 @@ const ID_TEMPERATURE: u8 = 0x03;
 const ID_DIGITAL: u8 = 0x04;
 const ID_SERVO: u8 = 0x05;
 const ID_TIMING_SYNC: u8 = 0x06;
+const TIMING_SYNC_MARKER: [u8; 7] = *b"TIMESYN";
 
 const CHANNEL_CAPACITY: usize = 128;
 
@@ -43,10 +44,11 @@ impl BlackboxWriter {
     }
 
     pub fn write_timing_sync(&mut self, timestamp_ms: u32, fast_interval_ms: u16) {
-        let mut buf = [0u8; 7];
+        let mut buf = [0u8; 14];
         buf[0] = ID_TIMING_SYNC;
-        buf[1..5].copy_from_slice(&timestamp_ms.to_le_bytes());
-        buf[5..7].copy_from_slice(&fast_interval_ms.to_le_bytes());
+        buf[1..8].copy_from_slice(&TIMING_SYNC_MARKER);
+        buf[8..12].copy_from_slice(&timestamp_ms.to_le_bytes());
+        buf[12..14].copy_from_slice(&fast_interval_ms.to_le_bytes());
         self.write_all(&buf);
     }
 

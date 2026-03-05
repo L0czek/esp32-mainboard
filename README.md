@@ -102,6 +102,8 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
 - UART1 blackbox output uses compact binary packets (`ID + payload`) for offline capture.
 - Packet timestamps are centralized in a dedicated Timing Sync packet (`0x06`) that is emitted
   once at the start of each fast ADC batch.
+- Timing Sync packet layout is: `ID (0x06) + marker[7] + timestamp_ms:u32 + fast_interval_ms:u16`.
+- Timing Sync marker bytes are fixed ASCII: `TIMESYN` (`54 49 4D 45 53 59 4E`).
 - Fast ADC packets (`0x01`) are emitted at a fixed 1 ms cadence after each Timing Sync packet.
 - Slow ADC (`0x02`), temperature (`0x03`), digital (`0x04`), and servo (`0x05`) packets carry
   values only (no embedded per-packet timestamp).
