@@ -2,12 +2,14 @@ use core::net::{IpAddr, SocketAddr};
 
 use alloc::format;
 use defmt::{error, info};
+use embassy_futures::select;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_time::{Duration, Instant, Timer};
 use mcp794xx::NaiveDateTime;
 use smoltcp::wire::DnsQueryType;
 use sntpc::{get_time, NtpContext, NtpTimestampGenerator};
 
+use crate::NTP_TRIGGER;
 use crate::config::NTP_SERVER;
 use crate::rtc::RTC;
 use mainboard::wifi::WifiResourceSta;
@@ -98,6 +100,8 @@ pub(crate) async fn sync_time_with_ntp(sta_stack: &'static WifiResourceSta) {
             }
         }
 
-        Timer::after(Duration::from_secs(1200)).await;
+        let timeout = Timer::after(Duration::from_secs(1200));
+        let trigger = NTP_TRIGGER.wait();
+        let _ = select::select(timeout, trigger).await;
     }
 }
