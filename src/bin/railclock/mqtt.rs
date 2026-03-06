@@ -1,7 +1,8 @@
 use crate::{
     config::{
-        MQTT_BATTERY_SENSOR_CONFIG_TOPIC, MQTT_BATTERY_SENSOR_TOPIC, MQTT_BUTTON_CONFIG_TOPIC,
-        MQTT_BUTTON_TOPIC, MQTT_NTP_SYNC_CONFIG_TOPIC, MQTT_NTP_SYNC_TOPIC,
+        MQTT_BATTERY_SENSOR_CONFIG_TOPIC, MQTT_BATTERY_SENSOR_DISCOVERY, MQTT_BATTERY_SENSOR_TOPIC,
+        MQTT_BUTTON_CONFIG_TOPIC, MQTT_PUSH_BUTTON_DISCOVERY, MQTT_BUTTON_TOPIC,
+        MQTT_NTP_SYNC_CONFIG_TOPIC, MQTT_NTP_SYNC_DISCOVERY, MQTT_NTP_SYNC_TOPIC,
     },
     mqtt_queue::{OutgoingMessage, OUTGOING_CH},
 };
@@ -37,6 +38,9 @@ static TCP_RX_BUF: StaticCell<[u8; 4096]> = StaticCell::new();
 static TCP_TX_BUF: StaticCell<[u8; 4096]> = StaticCell::new();
 static MQTT_BUF: StaticCell<[u8; BUFFER_SIZE]> = StaticCell::new();
 
+// Client type alias for convenience
+type AppClient<'a, 'b> = Client<'a, TcpSocket<'b>, BumpBuffer<'a>, 5, 2, 2>;
+
 fn make_topic_name(topic: &str) -> Option<TopicName<'_>> {
     if topic.contains('#') || topic.contains('+') {
         return None;
@@ -54,6 +58,58 @@ fn make_topic_filter(topic: &str) -> Option<TopicFilter<'_>> {
     }
     let mqtt_string = MqttString::from_slice(topic).ok()?;
     Some(unsafe { TopicFilter::new_unchecked(mqtt_string) })
+}
+
+async fn subscribe_to_topic(
+    client: &mut AppClient<'_, '_>,
+    topic: &str,
+    options: SubscriptionOptions,
+) -> Result<(), AppMqttError> {
+    let filter = make_topic_filter(topic).ok_or(AppMqttError::StringConversionError)?;
+    info!("MQTT: Subscribing to topic: {}", topic);
+    client
+        .subscribe(filter, options)
+        .await
+        .map_err(|_| AppMqttError::MqttError)?;
+
+    loop {
+        match client.poll().await {
+            Ok(Event::Suback(_)) => {
+                info!("MQTT: Subscribed successfully to {}", topic);
+                break;
+            }
+            Ok(event) => {
+                info!(
+                    "MQTT: Received event while waiting for SUBACK: {:?}",
+                    &event
+                );
+            }
+            Err(_) => return Err(AppMqttError::MqttError),
+        }
+    }
+
+    Ok(())
+}
+
+async fn publish_discovery(
+    client: &mut AppClient<'_, '_>,
+    config_topic: &str,
+    payload: &str,
+) -> Result<(), AppMqttError> {
+    let cfg_topic = make_topic_name(config_topic).ok_or(AppMqttError::StringConversionError)?;
+    info!("Sending discovery payload = {}", payload);
+    let cfg_options = PublicationOptions {
+        retain: true,
+        topic: cfg_topic,
+        qos: QoS::AtMostOnce,
+    };
+
+    client
+        .publish(&cfg_options, payload.as_bytes().into())
+        .await
+        .map_err(|_| AppMqttError::MqttError)?;
+
+    Ok(())
 }
 
 #[embassy_executor::task]
@@ -153,10 +209,6 @@ async fn mqtt_connection_loop(
     );
 
     // Subscribe to button topics
-    let subscribe_topic =
-        make_topic_filter(&MQTT_BUTTON_TOPIC).ok_or(AppMqttError::StringConversionError)?;
-    info!("MQTT: Subscribing to topic: {}", MQTT_BUTTON_TOPIC.as_str());
-
     let subscription_options = SubscriptionOptions {
         retain_handling: RetainHandling::default(),
         retain_as_published: false,
@@ -164,125 +216,40 @@ async fn mqtt_connection_loop(
         qos: QoS::AtMostOnce,
     };
 
-    let _sub_id = client
-        .subscribe(subscribe_topic, subscription_options)
-        .await
-        .map_err(|_| AppMqttError::MqttError)?;
+    subscribe_to_topic(
+        &mut client,
+        MQTT_BUTTON_TOPIC.as_str(),
+        subscription_options,
+    )
+    .await?;
+    subscribe_to_topic(
+        &mut client,
+        MQTT_NTP_SYNC_TOPIC.as_str(),
+        subscription_options,
+    )
+    .await?;
 
-    loop {
-        match client.poll().await {
-            Ok(Event::Suback(_)) => {
-                info!("MQTT: Subscribed successfully");
-                break;
-            }
-            Ok(event) => {
-                info!(
-                    "MQTT: Received event while waiting for SUBACK: {:?}",
-                    &event
-                );
-            }
-            Err(e) => {
-                error!("MQTT: Error waiting for SUBACK: {:?}", &e);
-                return Err(AppMqttError::MqttError);
-            }
-        }
-    }
+    publish_discovery(
+        &mut client,
+        &MQTT_BATTERY_SENSOR_CONFIG_TOPIC,
+        MQTT_BATTERY_SENSOR_DISCOVERY.as_str(),
+    )
+    .await?;
 
-    // Main message loop
-    // Publish Home Assistant discovery configuration for battery sensor and buttons
-    // Battery sensor
-    if let Some(battery_config_topic) = make_topic_name(&MQTT_BATTERY_SENSOR_CONFIG_TOPIC) {
-        let battery_topic = MQTT_BATTERY_SENSOR_TOPIC.as_str();
-        let cfg_payload = format!(
-            r#"{{
-                "name": "Battery sense",
-                "state_topic": "{battery_topic}",
-                "unit_of_measurement": "mV",
-                "unique_id": "{MQTT_CLIENT_ID}_battery_sensor",
-                "device_class": "voltage",
-                "device": {{
-                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
-                    "name": "{MQTT_CLIENT_ID}"
-                }}
-            }}"#
-        );
+    publish_discovery(
+        &mut client,
+        &MQTT_BUTTON_CONFIG_TOPIC,
+        MQTT_PUSH_BUTTON_DISCOVERY.as_str(),
+    )
+    .await?;
 
-        info!("Sending discovery payload = {}", cfg_payload.as_str());
+    publish_discovery(
+        &mut client,
+        &MQTT_NTP_SYNC_CONFIG_TOPIC,
+        MQTT_NTP_SYNC_DISCOVERY.as_str(),
+    )
+    .await?;
 
-        let cfg_options = PublicationOptions {
-            retain: true,
-            topic: battery_config_topic,
-            qos: QoS::AtMostOnce,
-        };
-
-        let _ = client
-            .publish(&cfg_options, cfg_payload.as_bytes().into())
-            .await
-            .expect("Failed to send mqtt discovery packet for battery sensor");
-    }
-
-    // Buttons: expose two MQTT-dispatched buttons for Home Assistant
-    if let Some(button_config_topic) = make_topic_name(&MQTT_BUTTON_CONFIG_TOPIC) {
-        let button_topic = MQTT_BUTTON_TOPIC.as_str();
-        let cfg_payload = format!(
-            r#"{{
-                "name": "Push forward button",
-                "command_topic": "{button_topic}",
-                "payload_press": "PRESS",
-                "unique_id": "{MQTT_CLIENT_ID}_push_button",
-                "device": {{
-                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
-                    "name": "{MQTT_CLIENT_ID}"
-                }}
-            }}"#
-        );
-
-        info!("Sending discovery payload = {}", cfg_payload.as_str());
-
-        let btn_opts = PublicationOptions {
-            retain: true,
-            topic: button_config_topic,
-            qos: QoS::AtMostOnce,
-        };
-        let _ = client
-            .publish(&btn_opts, cfg_payload.as_bytes().into())
-            .await
-            .expect("Failed to send mqtt discovery packet for push button");
-    }
-
-    if let Some(ntp_config_topic) = make_topic_name(&MQTT_NTP_SYNC_CONFIG_TOPIC) {
-        let ntp_topic = MQTT_NTP_SYNC_TOPIC.as_str();
-        let cfg_payload = format!(
-            r#"{{
-                "name": "NTP sync button",
-                "command_topic": "{ntp_topic}",
-                "payload_press": "PRESS",
-                "unique_id": "{MQTT_CLIENT_ID}_ntp_sync_button",
-                "device": {{
-                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
-                    "name": "{MQTT_CLIENT_ID}"
-                }}
-            }}"#
-        );
-
-        info!(
-            "Sending discovery payload {}",
-            cfg_payload.as_str()
-        );
-
-        let btn_opts = PublicationOptions {
-            retain: true,
-            topic: ntp_config_topic,
-            qos: QoS::AtMostOnce,
-        };
-        let _ = client
-            .publish(&btn_opts, cfg_payload.as_bytes().into())
-            .await
-            .expect("Failed to send mqtt discovery packet for ntp sync");
-    }
-
-    // Main message loop: use `poll_header()` (cancellable) in a select together
-    // with outgoing messages; after a header is received, call `poll_body()`.
     loop {
         match select(client.poll_header(), OUTGOING_CH.receive()).await {
             Either::First(poll_header_res) => match poll_header_res {

@@ -30,3 +30,57 @@ lazy_static! {
     pub static ref MQTT_NTP_SYNC_TOPIC: String =
         format!("homeassistant/button/{MQTT_CLIENT_ID}/button/ntp_sync");
 }
+
+lazy_static! {
+    /// Discovery JSON payload for the battery sensor entity
+    pub static ref MQTT_BATTERY_SENSOR_DISCOVERY: String = {
+        let battery_topic = MQTT_BATTERY_SENSOR_TOPIC.as_str();
+        format!(
+            r#"{{
+                "name": "Battery sense",
+                "state_topic": "{battery_topic}",
+                "unit_of_measurement": "mV",
+                "unique_id": "{MQTT_CLIENT_ID}_battery_sensor",
+                "device_class": "voltage",
+                "device": {{
+                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
+                    "name": "{MQTT_CLIENT_ID}"
+                }}
+            }}"#,
+        )
+    };
+
+    /// Discovery JSON payload for the push button entity
+    pub static ref MQTT_PUSH_BUTTON_DISCOVERY: String = {
+        let button_topic = MQTT_BUTTON_TOPIC.as_str();
+        format!(
+            r#"{{
+                "name": "Push forward button",
+                "command_topic": "{button_topic}",
+                "payload_press": "PRESS",
+                "unique_id": "{MQTT_CLIENT_ID}_push_button",
+                "device": {{
+                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
+                    "name": "{MQTT_CLIENT_ID}"
+                }}
+            }}"#,
+        )
+    };
+
+    /// Discovery JSON payload for the NTP sync button entity
+    pub static ref MQTT_NTP_SYNC_DISCOVERY: String = {
+        let ntp_topic = MQTT_NTP_SYNC_TOPIC.as_str();
+        format!(
+            r#"{{
+                "name": "NTP sync button",
+                "command_topic": "{ntp_topic}",
+                "payload_press": "PRESS",
+                "unique_id": "{MQTT_CLIENT_ID}_ntp_sync_button",
+                "device": {{
+                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
+                    "name": "{MQTT_CLIENT_ID}"
+                }}
+            }}"#,
+        )
+    };
+}
