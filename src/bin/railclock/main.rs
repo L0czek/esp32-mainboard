@@ -22,6 +22,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::once_lock::OnceLock;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
+use embassy_futures::select::{select, Either};
+use esp_hal::rtc_cntl::Rtc;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Input, InputConfig};
 use esp_hal::timer::timg::TimerGroup;
@@ -29,7 +31,8 @@ use mcp794xx::AlarmDateTime;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
-use crate::config::{BUTTON_DELAY_MS, MQTT_BATTERY_SENSOR_TOPIC};
+use crate::battery::BatteryCalibration;
+use crate::config::{BATTRY_CALIBRATION, BUTTON_DELAY_MS, MQTT_BATTERY_SENSOR_TOPIC};
 use crate::driver::{spawn_clock_task, ClockDriver};
 use crate::mqtt::mqtt_task;
 use crate::ntp::sync_time_with_ntp;
@@ -44,6 +47,7 @@ extern crate alloc;
 
 static ESP_RADIO_INIT: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
 static ESP_WIFI_RES: StaticCell<WifiResourceSta> = StaticCell::new();
+pub static SHUTDOWN_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static CLOCK_DRIVER: OnceLock<ClockDriver> = OnceLock::new();
 static RTC_INT_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 pub static NTP_TRIGGER: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -124,7 +128,9 @@ async fn main(spawner: Spawner) -> ! {
 
     // Spawn battery monitor (ADC) which will publish its readings via MQTT helper
     let adc_config = esp_hal::analog::adc::AdcConfig::new();
-    let battery_cal: battery::BatteryCalibration = Default::default();
+    let battery_cal: battery::BatteryCalibration = BatteryCalibration {
+        battery_voltage_calibration: BATTRY_CALIBRATION
+    };
     let _battery = battery::spawn_battery_task(
         &spawner,
         peripherals.ADC1,
@@ -139,14 +145,33 @@ async fn main(spawner: Spawner) -> ! {
         .spawn(mqtt_task(wifi_res))
         .expect("Failed to spawn mqtt task");
 
-    // With no battery I disabled the charging to stop interrupts trying to tell me that battery is
-    // missing will fix later
-    power.enter_passive_mode().await;
-
     loop {
-        info!("Idle task...");
-        Timer::after(Duration::from_secs(1)).await;
+        match select(Timer::after(Duration::from_secs(1)), SHUTDOWN_SIGNAL.wait()).await {
+            Either::First(_) => {
+                info!("Idle task...");
+            }
+            Either::Second(_) => {
+                info!("Shutdown signal received");
+                break;
+            }
+        }
     }
+
+    // Perform shutdown sequence
+    info!("Executing shutdown sequence: disable boost, set charger to Charging, float GPIOs");
+    match power.set_boost_converter(false).await {
+        mainboard::tasks::PowerResponse::Ok => info!("Boost converter disabled"),
+        mainboard::tasks::PowerResponse::Err(e) => info!("Failed to disable boost converter: {:?}", e),
+    }
+
+    match power.enter_shipping_mode().await {
+        mainboard::tasks::PowerResponse::Ok => info!("Charger set to shipping mode"),
+        mainboard::tasks::PowerResponse::Err(e) => info!("Failed to enter shipping mode: {:?}", e),
+    }
+
+    info!("Entering deep sleep (shutdown)");
+    let mut rtc = Rtc::new(peripherals.LPWR);
+    rtc.sleep_deep(&[]);
 }
 
 #[embassy_executor::task]

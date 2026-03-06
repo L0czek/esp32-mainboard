@@ -12,6 +12,7 @@ pub static MQTT_CLIENT_ID: &str = match option_env!("MQTT_CLIENT_ID") {
     Some(id) => id,
     None => "esp32-railclock",
 };
+pub static BATTRY_CALIBRATION: u32 = 5780;
 
 // Battery publish interval (seconds) - configurable
 pub static BATTERY_PUBLISH_INTERVAL_SECS: u64 = 120;
@@ -76,6 +77,28 @@ lazy_static! {
                 "command_topic": "{ntp_topic}",
                 "payload_press": "PRESS",
                 "unique_id": "{MQTT_CLIENT_ID}_ntp_sync_button",
+                "device": {{
+                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
+                    "name": "{MQTT_CLIENT_ID}"
+                }}
+            }}"#,
+        )
+    };
+
+    /// Discovery JSON payload and topics for a shutdown (shipping mode) button
+    pub static ref MQTT_SHUTDOWN_CONFIG_TOPIC: String =
+        format!("homeassistant/button/{MQTT_CLIENT_ID}/shutdown/config");
+    pub static ref MQTT_SHUTDOWN_TOPIC: String =
+        format!("homeassistant/button/{MQTT_CLIENT_ID}/button/shutdown");
+
+    pub static ref MQTT_SHUTDOWN_DISCOVERY: String = {
+        let shutdown_topic = MQTT_SHUTDOWN_TOPIC.as_str();
+        format!(
+            r#"{{
+                "name": "Shutdown (shipping mode)",
+                "command_topic": "{shutdown_topic}",
+                "payload_press": "PRESS",
+                "unique_id": "{MQTT_CLIENT_ID}_shutdown_button",
                 "device": {{
                     "identifiers": ["{MQTT_CLIENT_ID}-device"],
                     "name": "{MQTT_CLIENT_ID}"

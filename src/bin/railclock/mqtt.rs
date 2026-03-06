@@ -3,6 +3,7 @@ use crate::{
         MQTT_BATTERY_SENSOR_CONFIG_TOPIC, MQTT_BATTERY_SENSOR_DISCOVERY, MQTT_BATTERY_SENSOR_TOPIC,
         MQTT_BUTTON_CONFIG_TOPIC, MQTT_PUSH_BUTTON_DISCOVERY, MQTT_BUTTON_TOPIC,
         MQTT_NTP_SYNC_CONFIG_TOPIC, MQTT_NTP_SYNC_DISCOVERY, MQTT_NTP_SYNC_TOPIC,
+            MQTT_SHUTDOWN_CONFIG_TOPIC, MQTT_SHUTDOWN_TOPIC, MQTT_SHUTDOWN_DISCOVERY,
     },
     mqtt_queue::{OutgoingMessage, OUTGOING_CH},
 };
@@ -228,6 +229,12 @@ async fn mqtt_connection_loop(
         subscription_options,
     )
     .await?;
+    subscribe_to_topic(
+        &mut client,
+        MQTT_SHUTDOWN_TOPIC.as_str(),
+        subscription_options,
+    )
+    .await?;
 
     publish_discovery(
         &mut client,
@@ -247,6 +254,13 @@ async fn mqtt_connection_loop(
         &mut client,
         &MQTT_NTP_SYNC_CONFIG_TOPIC,
         MQTT_NTP_SYNC_DISCOVERY.as_str(),
+    )
+    .await?;
+
+    publish_discovery(
+        &mut client,
+        &MQTT_SHUTDOWN_CONFIG_TOPIC,
+        MQTT_SHUTDOWN_DISCOVERY.as_str(),
     )
     .await?;
 
@@ -277,6 +291,12 @@ async fn mqtt_connection_loop(
                             {
                                 info!("Received ntp sync via mqtt");
                                 crate::NTP_TRIGGER.signal(());
+                            }
+                            x if x == MQTT_SHUTDOWN_TOPIC.as_str()
+                                && payload == "PRESS".as_bytes() =>
+                            {
+                                info!("Received shutdown via mqtt");
+                                crate::SHUTDOWN_SIGNAL.signal(());
                             }
                             _ => {}
                         }
