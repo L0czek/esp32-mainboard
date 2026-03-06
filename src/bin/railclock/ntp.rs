@@ -46,6 +46,13 @@ pub(crate) async fn sync_time_with_ntp(sta_stack: &'static WifiResourceSta) {
     let mut rx_buf = [0u8; 4096];
     let mut tx_buf = [0u8; 4096];
 
+    // Wait for network to be ready
+    info!("NTP: Waiting for network link...");
+    sta_stack.wait_link_up().await;
+    info!("NTP: Link is up, waiting for IP configuration...");
+    sta_stack.wait_config_up().await;
+    info!("NTP: Network configured");
+
     // Create UDP socket bound to ephemeral port
     let mut socket = UdpSocket::new(
         *sta_stack,

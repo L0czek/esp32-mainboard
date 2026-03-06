@@ -105,9 +105,7 @@ async fn battery_task(
         // Publish via MQTT if configured
         if let Some(topic) = publish_topic {
             // Format as volts with two decimals
-            let whole = avg_mV as u32 / 1000;
-            let frac = (avg_mV as u32 % 1000) / 10;
-            let payload = alloc::format!("{}.{:02}", whole, frac);
+            let payload = alloc::format!("{}", avg_mV);
             let _ = crate::mqtt_queue::mqtt_publish(topic, &payload, true);
         }
 

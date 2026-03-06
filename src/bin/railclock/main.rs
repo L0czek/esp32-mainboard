@@ -29,7 +29,7 @@ use mcp794xx::AlarmDateTime;
 use panic_rtt_target as _;
 use static_cell::StaticCell;
 
-use crate::config::BUTTON_DELAY_MS;
+use crate::config::{BUTTON_DELAY_MS, MQTT_BATTERY_SENSOR_TOPIC};
 use crate::driver::{spawn_clock_task, ClockDriver};
 use crate::mqtt::mqtt_task;
 use crate::ntp::sync_time_with_ntp;
@@ -132,7 +132,7 @@ async fn main(spawner: Spawner) -> ! {
         battery_cal,
         board.BatVol,
         Some(crate::config::BATTERY_PUBLISH_INTERVAL_SECS),
-        Some("sensor/battery"),
+        Some(MQTT_BATTERY_SENSOR_TOPIC.as_str()),
     );
 
     spawner
@@ -144,9 +144,8 @@ async fn main(spawner: Spawner) -> ! {
     power.enter_passive_mode().await;
 
     loop {
-        info!("Hello world!");
+        info!("Idle task...");
         Timer::after(Duration::from_secs(1)).await;
-        //CLOCK_DRIVER.get().await.push_forward(1);
     }
 }
 
@@ -167,9 +166,14 @@ async fn listen_on_buttons(bt1: D0Pin) {
 
     loop {
         p1.wait_for_low().await;
-        info!("Manual push");
-        CLOCK_DRIVER.get().await.push_forward(1);
-        Timer::after_millis(BUTTON_DELAY_MS).await;
+        Timer::after_millis(20).await;
+
+        if p1.is_low() {
+            info!("Manual push");
+            CLOCK_DRIVER.get().await.push_forward(1);
+
+            Timer::after_millis(BUTTON_DELAY_MS).await;
+        }
     }
 }
 

@@ -1,4 +1,10 @@
-use crate::mqtt_queue::{OutgoingMessage, OUTGOING_CH};
+use crate::{
+    config::{
+        MQTT_BATTERY_SENSOR_CONFIG_TOPIC, MQTT_BATTERY_SENSOR_TOPIC, MQTT_BUTTON_CONFIG_TOPIC,
+        MQTT_BUTTON_TOPIC, MQTT_NTP_SYNC_CONFIG_TOPIC, MQTT_NTP_SYNC_TOPIC,
+    },
+    mqtt_queue::{OutgoingMessage, OUTGOING_CH},
+};
 use alloc::format;
 use defmt::{error, info, warn};
 use embassy_futures::select::{select, Either};
@@ -126,7 +132,7 @@ async fn mqtt_connection_loop(
 
     let connect_options = ConnectOptions {
         clean_start: true,
-        keep_alive: KeepAlive::Seconds(MQTT_KEEPALIVE_SECS),
+        keep_alive: KeepAlive::Infinite,
         session_expiry_interval: SessionExpiryInterval::default(),
         user_name,
         password,
@@ -148,14 +154,14 @@ async fn mqtt_connection_loop(
 
     // Subscribe to button topics
     let subscribe_topic =
-        make_topic_filter("button/#").ok_or(AppMqttError::StringConversionError)?;
-    info!("MQTT: Subscribing to topic: button/#");
+        make_topic_filter(&MQTT_BUTTON_TOPIC).ok_or(AppMqttError::StringConversionError)?;
+    info!("MQTT: Subscribing to topic: {}", MQTT_BUTTON_TOPIC.as_str());
 
     let subscription_options = SubscriptionOptions {
         retain_handling: RetainHandling::default(),
         retain_as_published: false,
         no_local: false,
-        qos: QoS::AtLeastOnce,
+        qos: QoS::AtMostOnce,
     };
 
     let _sub_id = client
@@ -185,61 +191,94 @@ async fn mqtt_connection_loop(
     // Main message loop
     // Publish Home Assistant discovery configuration for battery sensor and buttons
     // Battery sensor
-    if let Some(cfg_topic) = make_topic_name(&format!(
-        "homeassistant/sensor/{}/battery/config",
-        MQTT_CLIENT_ID
-    )) {
+    if let Some(battery_config_topic) = make_topic_name(&MQTT_BATTERY_SENSOR_CONFIG_TOPIC) {
+        let battery_topic = MQTT_BATTERY_SENSOR_TOPIC.as_str();
         let cfg_payload = format!(
-            "{{\"name\":\"{} Battery\",\"state_topic\":\"sensor/battery\",\"unit_of_measurement\":\"V\",\"unique_id\":\"{}_battery\",\"device\":{{\"identifiers\":[\"{}\"],\"name\":\"{}\"}}}}",
-            MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID
+            r#"{{
+                "name": "Battery sense",
+                "state_topic": "{battery_topic}",
+                "unit_of_measurement": "mV",
+                "unique_id": "{MQTT_CLIENT_ID}_battery_sensor",
+                "device_class": "voltage",
+                "device": {{
+                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
+                    "name": "{MQTT_CLIENT_ID}"
+                }}
+            }}"#
         );
+
+        info!("Sending discovery payload = {}", cfg_payload.as_str());
 
         let cfg_options = PublicationOptions {
             retain: true,
-            topic: cfg_topic,
-            qos: QoS::AtLeastOnce,
+            topic: battery_config_topic,
+            qos: QoS::AtMostOnce,
         };
 
         let _ = client
             .publish(&cfg_options, cfg_payload.as_bytes().into())
-            .await;
+            .await
+            .expect("Failed to send mqtt discovery packet for battery sensor");
     }
 
     // Buttons: expose two MQTT-dispatched buttons for Home Assistant
-    if let Some(btn1_topic) = make_topic_name(&format!(
-        "homeassistant/button/{}/forward/config",
-        MQTT_CLIENT_ID
-    )) {
-        let btn1_payload = format!(
-            "{{\"name\":\"{} Forward\",\"command_topic\":\"button/forward\",\"unique_id\":\"{}_button_forward\",\"device\":{{\"identifiers\":[\"{}\"],\"name\":\"{}\"}}}}",
-            MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID
+    if let Some(button_config_topic) = make_topic_name(&MQTT_BUTTON_CONFIG_TOPIC) {
+        let button_topic = MQTT_BUTTON_TOPIC.as_str();
+        let cfg_payload = format!(
+            r#"{{
+                "name": "Push forward button",
+                "command_topic": "{button_topic}",
+                "payload_press": "PRESS",
+                "unique_id": "{MQTT_CLIENT_ID}_push_button",
+                "device": {{
+                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
+                    "name": "{MQTT_CLIENT_ID}"
+                }}
+            }}"#
         );
+
+        info!("Sending discovery payload = {}", cfg_payload.as_str());
+
         let btn_opts = PublicationOptions {
             retain: true,
-            topic: btn1_topic,
-            qos: QoS::AtLeastOnce,
+            topic: button_config_topic,
+            qos: QoS::AtMostOnce,
         };
         let _ = client
-            .publish(&btn_opts, btn1_payload.as_bytes().into())
-            .await;
+            .publish(&btn_opts, cfg_payload.as_bytes().into())
+            .await
+            .expect("Failed to send mqtt discovery packet for push button");
     }
 
-    if let Some(btn2_topic) = make_topic_name(&format!(
-        "homeassistant/button/{}/ntp_sync/config",
-        MQTT_CLIENT_ID
-    )) {
-        let btn2_payload = format!(
-            "{{\"name\":\"{} NTP Sync\",\"command_topic\":\"button/ntp_sync\",\"unique_id\":\"{}_button_ntp_sync\",\"device\":{{\"identifiers\":[\"{}\"],\"name\":\"{}\"}}}}",
-            MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID, MQTT_CLIENT_ID
+    if let Some(ntp_config_topic) = make_topic_name(&MQTT_NTP_SYNC_CONFIG_TOPIC) {
+        let ntp_topic = MQTT_NTP_SYNC_TOPIC.as_str();
+        let cfg_payload = format!(
+            r#"{{
+                "name": "NTP sync button",
+                "command_topic": "{ntp_topic}",
+                "payload_press": "PRESS",
+                "unique_id": "{MQTT_CLIENT_ID}_ntp_sync_button",
+                "device": {{
+                    "identifiers": ["{MQTT_CLIENT_ID}-device"],
+                    "name": "{MQTT_CLIENT_ID}"
+                }}
+            }}"#
         );
+
+        info!(
+            "Sending discovery payload {}",
+            cfg_payload.as_str()
+        );
+
         let btn_opts = PublicationOptions {
             retain: true,
-            topic: btn2_topic,
-            qos: QoS::AtLeastOnce,
+            topic: ntp_config_topic,
+            qos: QoS::AtMostOnce,
         };
         let _ = client
-            .publish(&btn_opts, btn2_payload.as_bytes().into())
-            .await;
+            .publish(&btn_opts, cfg_payload.as_bytes().into())
+            .await
+            .expect("Failed to send mqtt discovery packet for ntp sync");
     }
 
     // Main message loop: use `poll_header()` (cancellable) in a select together
@@ -259,11 +298,17 @@ async fn mqtt_connection_loop(
                         );
 
                         match topic_str {
-                            "button/forward" => {
+                            x if x == MQTT_BUTTON_TOPIC.as_str()
+                                && payload == "PRESS".as_bytes() =>
+                            {
+                                info!("Received press via mqtt");
                                 let driver: &crate::driver::ClockDriver = CLOCK_DRIVER.get().await;
                                 driver.push_forward(1);
                             }
-                            "button/ntp_sync" => {
+                            x if x == MQTT_NTP_SYNC_TOPIC.as_str()
+                                && payload == "PRESS".as_bytes() =>
+                            {
+                                info!("Received ntp sync via mqtt");
                                 crate::NTP_TRIGGER.signal(());
                             }
                             _ => {}
@@ -296,7 +341,7 @@ async fn mqtt_connection_loop(
                             let pub_opts = PublicationOptions {
                                 retain,
                                 topic: pub_topic,
-                                qos: QoS::AtLeastOnce,
+                                qos: QoS::AtMostOnce,
                             };
                             let _ = client.publish(&pub_opts, payload.as_bytes().into()).await;
                         }

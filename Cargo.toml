@@ -96,6 +96,7 @@ sntpc = { version = "*",  default-features = false, features = ["embassy-socket"
 mcp794xx = "0.4.0"
 rkyv = { version = "*", default-features = false, features = ["bytecheck", "alloc"] }
 rust-mqtt = { version = "0.4.1", default-features = false, features = ["bump", "defmt", "v5"] }
+lazy_static = { version = "1.5.0", features = [ "spin_no_std" ] }
 
 [build-dependencies]
 dotenvy = "=0.15.7"
