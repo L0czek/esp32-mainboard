@@ -47,12 +47,24 @@ pub enum Tmp107Error {
     UartRead(RxError),
     /// Caller-provided output buffer is too small.
     BufferTooSmall,
+    /// No sensors are currently discovered (`address_initialize` not run or failed).
+    ChainNotInitialized,
+    /// Individual sensor address is outside the discovered range.
+    InvalidSensorAddress {
+        /// Requested sensor address.
+        address: u8,
+        /// Currently discovered sensor count.
+        sensor_count: u8,
+    },
+    /// Global operation address is invalid for TMP107 addressing rules.
+    InvalidGlobalAddress {
+        /// Requested global address upper bound.
+        max_address: u8,
+    },
     /// Protocol operation timed out.
     Timeout,
     /// Address initialization did not discover any sensors.
     NoSensorsFound,
-    /// Catch-all driver error with static context string.
-    Other(&'static str),
 }
 
 /// Selects one of the two alert pins.
@@ -123,6 +135,7 @@ impl Tmp107 {
 
     /// Read temperature from a single sensor by address (1-based).
     pub async fn read_temperature(&mut self, address: u8) -> Result<u16, Tmp107Error> {
+        self.validate_sensor_address(address)?;
         self.individual_read(address, Register::Temperature).await
     }
 
@@ -130,6 +143,7 @@ impl Tmp107 {
     /// Returns the number of readings written to `out` = sensor_count.
     /// Results are ordered by ascending address: out[0] = address 1.
     pub async fn read_all_temperatures(&mut self, out: &mut [u16]) -> Result<usize, Tmp107Error> {
+        self.ensure_chain_initialized()?;
         self.global_read(self.sensor_count, Register::Temperature, out)
             .await?;
         Ok(self.sensor_count.into())
@@ -188,6 +202,7 @@ impl Tmp107 {
         gpio1_high: bool,
         gpio2_high: bool,
     ) -> Result<(), Tmp107Error> {
+        self.validate_sensor_address(address)?;
         self.set_gpio_output_state(
             address,
             Register::HighLimit1,
@@ -211,6 +226,7 @@ impl Tmp107 {
     ///
     /// This is useful if GPIO are connected to LEDs this makes identifying sensors easier.
     pub async fn expose_lower_address_bits_on_gpio(&mut self) -> Result<(), Tmp107Error> {
+        self.ensure_chain_initialized()?;
         for addr in 1..=self.sensor_count {
             let gpio1_high = (addr & 0x01) != 0;
             let gpio2_high = (addr & 0x02) != 0;
@@ -277,6 +293,7 @@ impl Tmp107 {
         &mut self,
         mutate: impl FnOnce(&mut ConfigRegisterBits),
     ) -> Result<(), Tmp107Error> {
+        self.ensure_chain_initialized()?;
         let mut next = self.config_register;
         mutate(&mut next);
 
@@ -362,6 +379,7 @@ impl Tmp107 {
         address: u8,
         register: Register,
     ) -> Result<u16, Tmp107Error> {
+        self.validate_sensor_address(address)?;
         let cmd = Command::IndividualRead { address }.byte();
         let ptr = register.pointer();
 
@@ -383,6 +401,7 @@ impl Tmp107 {
         register: Register,
         out: &mut [u16],
     ) -> Result<(), Tmp107Error> {
+        Self::validate_global_address(max_address)?;
         if out.len() < max_address.into() {
             return Err(Tmp107Error::BufferTooSmall);
         }
@@ -414,6 +433,7 @@ impl Tmp107 {
         register: Register,
         value: u16,
     ) -> Result<(), Tmp107Error> {
+        self.validate_sensor_address(address)?;
         let cmd = Command::IndividualWrite { address }.byte();
         let ptr = register.pointer();
         let data = value.to_le_bytes();
@@ -430,11 +450,37 @@ impl Tmp107 {
         register: Register,
         value: u16,
     ) -> Result<(), Tmp107Error> {
+        Self::validate_global_address(max_address)?;
         let cmd = Command::GlobalWrite { max_address }.byte();
         let ptr = register.pointer();
         let data = value.to_le_bytes();
         let bytes = [CALIBRATION_BYTE, cmd, ptr, data[0], data[1]];
 
         self.tx(&bytes).await
+    }
+
+    fn ensure_chain_initialized(&self) -> Result<(), Tmp107Error> {
+        if self.sensor_count == 0 {
+            return Err(Tmp107Error::ChainNotInitialized);
+        }
+        Ok(())
+    }
+
+    fn validate_sensor_address(&self, address: u8) -> Result<(), Tmp107Error> {
+        self.ensure_chain_initialized()?;
+        if address == 0 || address > self.sensor_count {
+            return Err(Tmp107Error::InvalidSensorAddress {
+                address,
+                sensor_count: self.sensor_count,
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_global_address(max_address: u8) -> Result<(), Tmp107Error> {
+        if max_address == 0 || (max_address as usize) > MAX_SENSORS {
+            return Err(Tmp107Error::InvalidGlobalAddress { max_address });
+        }
+        Ok(())
     }
 }
