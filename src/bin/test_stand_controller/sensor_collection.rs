@@ -6,13 +6,14 @@ use esp_hal::analog::adc::{
 use esp_hal::peripherals::ADC1;
 use esp_hal::Blocking;
 
+use crate::config::ADC_OVERSAMPLING_SAMPLES;
 use crate::mqtt::sensors::fast::{FastAdcChannel, FastAdcPacket};
 use crate::mqtt::sensors::slow::{SlowAdcChannel, SlowAdcPacket};
 use crate::mqtt::{publish_fast_sensors, publish_slow_sensors, FastSensorsBatch, SlowSensorsBatch};
 use mainboard::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin};
 
-const FAST_BATCH_SAMPLES: usize = 100;
-const FAST_SAMPLE_INTERVAL_MS: u64 = 1;
+const FAST_BATCH_SAMPLES: usize = 10;
+const FAST_SAMPLE_INTERVAL_MS: u64 = 10;
 
 pub struct SensorCollectionIo {
     pub adc: ADC1<'static>,
@@ -90,6 +91,10 @@ impl SensorCollectionState {
 
 #[embassy_executor::task]
 pub async fn sensor_collection_task(io: SensorCollectionIo) {
+    assert!(
+        ADC_OVERSAMPLING_SAMPLES > 0,
+        "ADC_OVERSAMPLING_SAMPLES must be greater than 0"
+    );
     let (mut state, mut blackbox) = SensorCollectionState::new(io);
 
     loop {
@@ -106,23 +111,16 @@ async fn collect_and_publish_fast(
     let mut pressure_tank = [0u16; FAST_BATCH_SAMPLES];
     let mut pressure_combustion = [0u16; FAST_BATCH_SAMPLES];
 
-    let mut first_timestamp_ms = 0u32;
-    let mut last_timestamp_ms = 0u32;
-
     let batch_start_timestamp_ms = timestamp_ms();
     blackbox.write_timing_sync(batch_start_timestamp_ms, FAST_SAMPLE_INTERVAL_MS as u16);
 
     let mut ticker = Ticker::every(Duration::from_millis(FAST_SAMPLE_INTERVAL_MS));
-    for index in 0..FAST_BATCH_SAMPLES {
-        let timestamp_ms = timestamp_ms();
-        if index == 0 {
-            first_timestamp_ms = timestamp_ms;
-        }
-        last_timestamp_ms = timestamp_ms;
 
-        tensometer[index] = read_adc_raw(&mut state.adc, &mut state.tensometer);
-        pressure_tank[index] = read_adc_raw(&mut state.adc, &mut state.pressure_tank);
-        pressure_combustion[index] = read_adc_raw(&mut state.adc, &mut state.pressure_combustion);
+    let first_timestamp_ms = timestamp_ms();
+    for index in 0..FAST_BATCH_SAMPLES {
+        tensometer[index] = read_adc_mean(&mut state.adc, &mut state.tensometer);
+        pressure_tank[index] = read_adc_mean(&mut state.adc, &mut state.pressure_tank);
+        pressure_combustion[index] = read_adc_mean(&mut state.adc, &mut state.pressure_combustion);
 
         blackbox.write_fast_adc(
             tensometer[index],
@@ -136,6 +134,7 @@ async fn collect_and_publish_fast(
             ticker.next().await;
         }
     }
+    let last_timestamp_ms = timestamp_ms();
 
     let tensometer_packet = FastAdcPacket::from_slice(
         FastAdcChannel::Tensometer,
@@ -179,25 +178,25 @@ fn collect_and_publish_slow(
     let battery_stand = SlowAdcPacket::new(
         SlowAdcChannel::BatteryStand,
         timestamp_ms(),
-        read_adc_raw(&mut state.adc, &mut state.battery_stand),
+        read_adc_mean(&mut state.adc, &mut state.battery_stand),
     );
 
     let battery_computer = SlowAdcPacket::new(
         SlowAdcChannel::BatteryComputer,
         timestamp_ms(),
-        read_adc_raw(&mut state.adc, &mut state.battery_computer),
+        read_adc_mean(&mut state.adc, &mut state.battery_computer),
     );
 
     let boost_voltage = SlowAdcPacket::new(
         SlowAdcChannel::BoostVoltage,
         timestamp_ms(),
-        read_adc_raw(&mut state.adc, &mut state.boost_voltage),
+        read_adc_mean(&mut state.adc, &mut state.boost_voltage),
     );
 
     let starter_sense = SlowAdcPacket::new(
         SlowAdcChannel::StarterSense,
         timestamp_ms(),
-        read_adc_raw(&mut state.adc, &mut state.starter_sense),
+        read_adc_mean(&mut state.adc, &mut state.starter_sense),
     );
 
     blackbox.write_slow_adc(
@@ -229,6 +228,22 @@ where
     CS: AdcCalScheme<ADC1<'static>>,
 {
     nb::block!(adc.read_oneshot(pin)).expect("ADC oneshot read failed")
+}
+
+fn read_adc_mean<PIN, CS>(
+    adc: &mut Adc<'static, ADC1<'static>, Blocking>,
+    pin: &mut AdcPin<PIN, ADC1<'static>, CS>,
+) -> u16
+where
+    PIN: AdcChannel,
+    CS: AdcCalScheme<ADC1<'static>>,
+{
+    let mut total: u32 = 0;
+    for _ in 0..ADC_OVERSAMPLING_SAMPLES {
+        total += u32::from(read_adc_raw(adc, pin));
+    }
+
+    (total / ADC_OVERSAMPLING_SAMPLES as u32) as u16
 }
 
 fn timestamp_ms() -> u32 {

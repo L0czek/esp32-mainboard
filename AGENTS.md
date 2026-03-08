@@ -72,7 +72,9 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 - non-blocking enqueue API for data collection (`publish_fast_sensors`, `publish_slow_sensors`,
   `publish_temperature_sensor`, `publish_armed_sensor`).
 - sensor collection task reads raw ADC values for A0/A1/A2 fast channels and A3/A4/BatVol/BoostVol
-  slow channels. It batches fast channels into 100 samples collected at 1ms spacing.
+  slow channels. Each published sample is the arithmetic mean of
+  `ADC_OVERSAMPLING_SAMPLES` one-shot reads (default `2`). It batches fast
+  channels into 100 samples collected at 1ms spacing.
 - binary payload encoding for fast/slow ADC, armed digital stream, temperature streams, and servo sensor.
 - command subscribe/dispatch on `cmd/state`, `cmd/servo`, and `cmd/shutdown` (`SHUTDOWN` payload)
   with trait-based handlers.
@@ -92,6 +94,8 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
   - Monitors armed switch (GPIO21 D2) edge changes and publishes via MQTT.
   - MQTT client delegates state management to sequencer channel (no inline state).
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
+- Additional compile-time constants in `config.rs` include `ADC_OVERSAMPLING_SAMPLES` (default `2`)
+  for ADC sample averaging before MQTT/blackbox publish.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
