@@ -1,5 +1,5 @@
 mod commands;
-mod registers;
+pub mod registers;
 
 use crate::tmp107::commands::Command;
 use crate::tmp107::registers::{default_config_register, ConfigRegisterBits, Register};
@@ -50,8 +50,19 @@ pub struct Tmp107 {
 impl Tmp107 {
     // -- Public API --
 
-    /// Create driver, run Address Initialize, return configured driver
-    /// with discovered sensor count.
+    /// Create driver without running address discovery. sensor_count will be 0.
+    /// You need to call address_initialize() before reading/writing to sensors
+    pub async fn new(tx: UartTx<'static, Async>, rx: UartRx<'static, Async>) -> Self {
+        Self {
+            tx,
+            rx,
+            sensor_count: 0,
+            config_register: default_config_register(),
+        }
+    }
+
+    /// Create driver, run Address Initialize, in loop untill success,
+    /// return configured driver with discovered sensor count.
     pub async fn init(
         tx: UartTx<'static, Async>,
         rx: UartRx<'static, Async>,
@@ -211,7 +222,7 @@ impl Tmp107 {
         Ok(count)
     }
 
-    async fn write_global_config(
+    pub async fn write_global_config(
         &mut self,
         mutate: impl FnOnce(&mut ConfigRegisterBits),
     ) -> Result<(), Tmp107Error> {
