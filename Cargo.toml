@@ -28,6 +28,10 @@ path = "./src/bin/tmp107_sensor_test/main.rs"
 name = "blackbox_uart_counter"
 path = "./src/bin/blackbox_uart_counter/main.rs"
 
+[[bin]]
+name = "adc_conversion_test"
+path = "./src/bin/adc_conversion_test/main.rs"
+
 [dependencies]
 esp-hal = { version = "~1.0", features = ["defmt", "esp32c6", "unstable"] }
 

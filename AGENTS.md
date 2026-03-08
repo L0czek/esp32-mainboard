@@ -3,6 +3,7 @@
 ## Project Structure & Module Organization
 Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107_sensor_test/`.
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
+- `src/bin/adc_conversion_test/main.rs`: standalone ADC benchmark binary (A0 only, 1000 blocking one-shot conversions timed in microseconds).
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
@@ -55,10 +56,12 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 - `cargo check --bin tmp107_sensor_test`: fast compile check for the standalone TMP107 test target.
 - `cargo clippy --bin tmp107_sensor_test -- -D warnings`: lint the standalone TMP107 test target strictly.
 - `cargo check --bin blackbox_uart_counter`: fast compile check for UART blackbox receiver debug target.
+- `cargo check --bin adc_conversion_test`: fast compile check for ADC conversion benchmark target.
 - `cargo espflash --release --bin test_stand_controller /dev/ttyUSB0`: flash device (update serial path).
 - `cargo run --bin test_stand_controller`: probe-run style flash/run flow when configured.
 - `cargo run --bin tmp107_sensor_test`: flash/run the standalone TMP107 diagnostic loop when configured.
 - `cargo run --bin blackbox_uart_counter`: flash/run UART blackbox counter stream for receiver debug.
+- `cargo run --bin adc_conversion_test`: flash/run ADC conversion benchmark on A0.
 
 ## Current Implementation Status (test_stand_controller)
 - Boot sequence is implemented: RTT logging, Embassy runtime startup, heap allocation, board pin mapping, shared I2C bus init.

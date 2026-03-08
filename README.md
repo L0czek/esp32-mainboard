@@ -4,7 +4,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 
 ## Repository layout
 
-- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`, `tmp107_sensor_test`, `blackbox_uart_counter`).
+- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`, `tmp107_sensor_test`, `blackbox_uart_counter`, `adc_conversion_test`).
 - `rust-toolchain.toml` — pinned Rust toolchain for the project.
 - `scripts/` — helper scripts for common local workflows.
 - `src/` — library and binary sources:
@@ -17,6 +17,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
     - `test_stand_controller/` — test stand firmware (power, WiFi, MQTT command + sensor pipeline).
     - `tmp107_sensor_test/` — standalone TMP107 chain test (discover, read, log, LED blink loop).
     - `blackbox_uart_counter/` — UART1 (D4 TX) counter generator for blackbox receiver debugging.
+    - `adc_conversion_test/` — one-pin ADC conversion benchmark (1000 `read_oneshot` calls timed in microseconds).
 
 ## What this repo provides
 
@@ -53,6 +54,12 @@ To build the blackbox UART counter debug binary:
 
 ```sh
 cargo build --release --bin blackbox_uart_counter
+```
+
+To build the ADC conversion benchmark binary:
+
+```sh
+cargo build --release --bin adc_conversion_test
 ```
 
 `build.rs` auto-loads `.env` at compile time for any `env!` config values.
@@ -141,6 +148,18 @@ cargo run --bin blackbox_uart_counter
 
 ```sh
 cargo run --bin tmp107_sensor_test
+```
+
+## ADC Conversion Benchmark
+
+- `adc_conversion_test` mirrors the blocking ADC path used by `test_stand_controller/sensor_collection.rs`.
+- It enables only `A0` with `AdcCalBasic`, performs 1000 one-shot conversions, and logs total elapsed
+  microseconds plus average nanoseconds per conversion.
+- It repeats once per second so you can observe timing stability across runs.
+- Run with:
+
+```sh
+cargo run --bin adc_conversion_test
 ```
 
 ## Using `www_test`
