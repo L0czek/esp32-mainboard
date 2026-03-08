@@ -7,7 +7,7 @@ use crate::config::{TEMP_BATCH_SIZE, TEMP_COLLECTION_INTERVAL_MS, TEMP_UART_BOUD
 use crate::mqtt::publish_temperature_sensor;
 use crate::mqtt::sensors::temp::TempPacket;
 use mainboard::board::{D0Pin, U0RxPin, U0TxPin};
-use mainboard::tmp107::{Tmp107, MAX_SENSORS, ONESHOT_CONVERSION_MS};
+use mainboard::tmp107::{AlertPin, Tmp107, MAX_SENSORS, ONESHOT_CONVERSION_MS};
 
 pub struct TemperatureCollectionIo {
     pub uart: UART0<'static>,
@@ -18,6 +18,8 @@ pub struct TemperatureCollectionIo {
 
 #[embassy_executor::task]
 pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
+    // Board-specific UART0 wiring for TMP107 SMAART wire:
+    // D0 is connected to UART DTR and used as half-duplex RS485 direction control.
     let uart = Uart::new(
         io.uart,
         esp_hal::uart::Config::default().with_baudrate(TEMP_UART_BOUDRATE),
@@ -39,8 +41,8 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
         }
     };
 
-    // Enabled LED connected to ALERT 1. By default we set polarity of both to "true"
-    if let Err(e) = driver.set_alert_polarity(1, false).await {
+    // Board-specific: ALERT1 is wired to a status LED, so use active-low polarity for that pin.
+    if let Err(e) = driver.set_alert_polarity(AlertPin::Alert1, false).await {
         error!("TMP107 set alert polarity failed: {:?}", e);
         return;
     }

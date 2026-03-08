@@ -1,3 +1,11 @@
+//! TMP107 daisy-chain temperature driver for this firmware.
+//!
+//! The protocol itself is sensor-generic, but this implementation currently assumes:
+//! - UART is configured by the caller in half-duplex RS485 mode.
+//! - `address_initialize()` assigns addresses starting at `1`.
+//! - ALERT1/ALERT2 may be used as open-drain GPIO outputs (for example LED drive) by
+//!   programming limit registers to deterministic extreme values.
+
 mod commands;
 pub mod registers;
 
@@ -30,16 +38,33 @@ const ADDR_DISCOVER_TIMEOUT_MS: u64 = 50;
 /// temperature.
 pub const ONESHOT_CONVERSION_MS: u64 = 20;
 
+/// TMP107 driver errors.
 #[derive(Debug, Clone, Copy, defmt::Format)]
 pub enum Tmp107Error {
+    /// UART transmit operation failed.
     UartWrite(TxError),
+    /// UART receive operation failed.
     UartRead(RxError),
+    /// Caller-provided output buffer is too small.
     BufferTooSmall,
+    /// Protocol operation timed out.
     Timeout,
+    /// Address initialization did not discover any sensors.
     NoSensorsFound,
+    /// Catch-all driver error with static context string.
     Other(&'static str),
 }
 
+/// Selects one of the two alert pins.
+#[derive(Debug, Clone, Copy, defmt::Format)]
+pub enum AlertPin {
+    /// ALERT1 pin.
+    Alert1,
+    /// ALERT2 pin.
+    Alert2,
+}
+
+/// TMP107 chain driver instance.
 pub struct Tmp107 {
     tx: UartTx<'static, Async>,
     rx: UartRx<'static, Async>,
@@ -50,8 +75,10 @@ pub struct Tmp107 {
 impl Tmp107 {
     // -- Public API --
 
-    /// Create driver without running address discovery. sensor_count will be 0.
-    /// You need to call address_initialize() before reading/writing to sensors
+    /// Create a driver without running address discovery.
+    ///
+    /// The returned driver has `sensor_count = 0`. Call `address_initialize()` before any
+    /// sensor read/write operation.
     pub async fn new(tx: UartTx<'static, Async>, rx: UartRx<'static, Async>) -> Self {
         Self {
             tx,
@@ -61,8 +88,9 @@ impl Tmp107 {
         }
     }
 
-    /// Create driver, run Address Initialize, in loop untill success,
-    /// return configured driver with discovered sensor count.
+    /// Create a driver and block in a retry loop until address initialization succeeds.
+    ///
+    /// This is convenient for firmware that must not continue without a discovered chain.
     pub async fn init(
         tx: UartTx<'static, Async>,
         rx: UartRx<'static, Async>,
@@ -88,6 +116,7 @@ impl Tmp107 {
         Ok(driver)
     }
 
+    /// Number of sensors currently known in the chain.
     pub fn sensor_count(&self) -> u8 {
         self.sensor_count
     }
@@ -98,7 +127,7 @@ impl Tmp107 {
     }
 
     /// Read temperatures from all discovered sensors via global read.
-    /// Returns the number of readings written to `out`.
+    /// Returns the number of readings written to `out` = sensor_count.
     /// Results are ordered by ascending address: out[0] = address 1.
     pub async fn read_all_temperatures(&mut self, out: &mut [u16]) -> Result<usize, Tmp107Error> {
         self.global_read(self.sensor_count, Register::Temperature, out)
@@ -127,54 +156,73 @@ impl Tmp107 {
         .await
     }
 
+    /// Configure ALERT pin polarity globally for all sensors.
+    ///
+    /// `active_high = true` means asserted state drives high (through external pull-up/open-drain
+    /// behavior), `false` means asserted state drives low.
     pub async fn set_alert_polarity(
         &mut self,
-        alert: u8,
-        polarity: bool,
+        alert_pin: AlertPin,
+        active_high: bool,
     ) -> Result<(), Tmp107Error> {
-        match alert {
-            1 => {
-                self.write_global_config(|config| {
-                    config.set_pol1(polarity);
-                })
-                .await
+        match alert_pin {
+            AlertPin::Alert1 => {
+                self.write_global_config(|config| config.set_pol1(active_high))
+                    .await
             }
-            2 => {
-                self.write_global_config(|config| {
-                    config.set_pol2(polarity);
-                })
-                .await
+            AlertPin::Alert2 => {
+                self.write_global_config(|config| config.set_pol2(active_high))
+                    .await
             }
-            _ => Err(Tmp107Error::Other("Invalid alert number")),
         }
     }
 
-    /// Set ALERT1/ALERT2 LEDs on a single sensor using per-sensor limit registers.
-    /// All sensors keep the same shared config register value.
-    pub async fn set_leds(
+    /// Set ALERT1/ALERT2 logical output states for one sensor.
+    ///
+    /// This assumes ALERT pins are used as open-drain GPIO outputs. The desired state is achieved by
+    /// writing per-sensor alert limit registers to deterministic extremes (`TEMP_LIMIT_MIN` /
+    /// `TEMP_LIMIT_MAX`) while staying in therm mode.
+    pub async fn set_gpio_outputs(
         &mut self,
         address: u8,
-        led1: bool,
-        led2: bool,
+        gpio1_high: bool,
+        gpio2_high: bool,
     ) -> Result<(), Tmp107Error> {
-        self.set_led_output(address, Register::HighLimit1, Register::LowLimit1, led1)
-            .await?;
-        self.set_led_output(address, Register::HighLimit2, Register::LowLimit2, led2)
-            .await
+        self.set_gpio_output_state(
+            address,
+            Register::HighLimit1,
+            Register::LowLimit1,
+            gpio1_high,
+        )
+        .await?;
+        self.set_gpio_output_state(
+            address,
+            Register::HighLimit2,
+            Register::LowLimit2,
+            gpio2_high,
+        )
+        .await
     }
 
-    /// Show the two lowest bits of each sensor's address on its
-    /// ALERT LEDs. ALERT1 = bit 0, ALERT2 = bit 1.
-    pub async fn show_address_leds(&mut self) -> Result<(), Tmp107Error> {
+    /// Drive ALERT GPIOs so they expose each sensor's two lowest address bits.
+    ///
+    /// - ALERT1 reflects address bit 0
+    /// - ALERT2 reflects address bit 1
+    ///
+    /// This is useful if GPIO are connected to LEDs this makes identifying sensors easier.
+    pub async fn expose_lower_address_bits_on_gpio(&mut self) -> Result<(), Tmp107Error> {
         for addr in 1..=self.sensor_count {
-            let led1 = (addr & 0x01) != 0;
-            let led2 = (addr & 0x02) != 0;
-            self.set_leds(addr, led1, led2).await?;
+            let gpio1_high = (addr & 0x01) != 0;
+            let gpio2_high = (addr & 0x02) != 0;
+            self.set_gpio_outputs(addr, gpio1_high, gpio2_high).await?;
         }
         Ok(())
     }
 
     // -- Address discovery --
+    /// Run TMP107 address initialize sequence and refresh `sensor_count`.
+    ///
+    /// This implementation always assigns start address `0x01`.
     pub async fn address_initialize(&mut self) -> Result<u8, Tmp107Error> {
         let bytes = [
             CALIBRATION_BYTE,
@@ -222,7 +270,10 @@ impl Tmp107 {
         Ok(count)
     }
 
-    pub async fn write_global_config(
+    /// Write global configuration register using in-place mutation.
+    ///
+    /// The one-shot bit (`OS`) is intentionally cleared from cached state after each write.
+    pub(crate) async fn write_global_config(
         &mut self,
         mutate: impl FnOnce(&mut ConfigRegisterBits),
     ) -> Result<(), Tmp107Error> {
@@ -237,17 +288,17 @@ impl Tmp107 {
             .await
     }
 
-    async fn set_led_output(
+    async fn set_gpio_output_state(
         &mut self,
         address: u8,
         high_register: Register,
         low_register: Register,
-        led_on: bool,
+        gpio_high: bool,
     ) -> Result<(), Tmp107Error> {
         self.individual_write(
             address,
             high_register,
-            if led_on {
+            if gpio_high {
                 TEMP_LIMIT_MIN
             } else {
                 TEMP_LIMIT_MAX
@@ -258,7 +309,7 @@ impl Tmp107 {
         self.individual_write(
             address,
             low_register,
-            if led_on {
+            if gpio_high {
                 TEMP_LIMIT_MIN
             } else {
                 TEMP_LIMIT_MAX
