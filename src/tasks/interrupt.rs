@@ -63,7 +63,8 @@ pub async fn ext_interrupt_task(
             }
         }
 
-        // Use map to invoke the signal if present
-        other.map(|i| i.signal(()));
+        if let Some(i) = other {
+            i.signal(());
+        }
     }
 }

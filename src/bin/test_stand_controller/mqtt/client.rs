@@ -116,7 +116,7 @@ pub async fn mqtt_task(
         wifi.wait_config_up().await;
 
         if let Err(error) =
-            mqtt_connection_loop(&wifi, tcp_rx_buf, tcp_tx_buf, mqtt_buf, shutdown_signal).await
+            mqtt_connection_loop(wifi, tcp_rx_buf, tcp_tx_buf, mqtt_buf, shutdown_signal).await
         {
             error!("MQTT session ended: {:?}", &error);
         }

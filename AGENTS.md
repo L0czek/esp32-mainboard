@@ -21,7 +21,9 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions, blackbox baud rate).
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
 - `src/signal_light.rs`: PCF8574-based signalling light tower driver (active-low, 5 LEDs + buzzer).
-- `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
+- `src/tmp107/mod.rs`: TMP107 daisy-chain temperature sensor driver public API + UART protocol flow.
+- `src/tmp107/registers.rs`: TMP107 register enum + configuration-register bitfield definition.
+- `src/tmp107/commands.rs`: TMP107 command enum + command-byte encoding.
 
 ## Host Tools
 

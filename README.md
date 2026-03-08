@@ -11,6 +11,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
   - `board.rs` — board-specific wiring and helper functions.
   - `power/` — power controller driver and helpers.
   - `tasks/` — async tasks used by binaries (ADC, UART, digital IO, etc.).
+  - `tmp107/` — TMP107 UART daisy-chain driver split into protocol commands/registers and driver logic.
   - `bin/` — firmware entrypoints:
     - `www_test/` — web server + diagnostic target (primary example).
     - `empty/` — minimal/empty binary.
