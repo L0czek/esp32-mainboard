@@ -22,6 +22,7 @@ pub const TOPIC_CMD_SHUTDOWN: &str = "cmd/shutdown";
 pub const TOPIC_STATUS_STATE: &str = "status/state";
 pub const TOPIC_STATUS_SERVO: &str = "status/servo";
 pub const TOPIC_STATUS_CMD: &str = "status/cmd";
+pub const TOPIC_METRIC_CPU_IDLE: &str = "metric/cpu/idle";
 
 pub const COMMAND_TOPICS: [&str; 3] = [TOPIC_CMD_STATE, TOPIC_CMD_SERVO, TOPIC_CMD_SHUTDOWN];
 

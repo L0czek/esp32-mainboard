@@ -25,7 +25,7 @@ use mainboard::tasks::{
 };
 use mainboard::wifi::{initialize_wifi_sta, WifiResourceSta};
 
-use defmt::info;
+use defmt::{info, warn};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::Timer;
@@ -232,6 +232,10 @@ async fn idle_metrics_task() {
         let idle_tenths = sample.idle_permille % 10;
         let idle_ms = idle_monitor::ticks_to_millis(sample.idle_ticks);
         let window_ms = idle_monitor::ticks_to_millis(sample.window_ticks);
+
+        if let Err(error) = mqtt::queue::publish_cpu_idle_metric(sample.idle_permille) {
+            warn!("CPU idle metric publish failed: {:?}", error);
+        }
 
         info!(
             "CPU: busy {}.{}%, idle {}.{}% ({} ms idle / {} ms window)",

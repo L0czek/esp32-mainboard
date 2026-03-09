@@ -108,12 +108,16 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
 
 ## CPU Idle Monitoring
 
-- `test_stand_controller`, `tmp107_sensor_test`, and `blackbox_uart_counter` now start
-  `esp_rtos` with `start_with_idle_hook(...)` and `mainboard::idle_monitor::idle_hook`.
+- All current binaries (`empty`, `www_test`, `railclock`, `test_stand_controller`,
+  `tmp107_sensor_test`, `blackbox_uart_counter`) start `esp_rtos` with
+  `start_with_idle_hook(...)` and `mainboard::idle_monitor::idle_hook`.
 - The idle hook records time spent blocked in `WFI` (idle scheduler state) using the ESP32-C6
   system timer.
-- Each of those binaries also runs a periodic async task that logs CPU busy/idle percentages and
-  idle/window milliseconds every 5 seconds.
+- Each binary runs a periodic async task that logs CPU busy/idle percentages and idle/window
+  milliseconds every 5 seconds.
+- `test_stand_controller` also publishes a retained MQTT metric with the latest idle value:
+  - topic: `metric/cpu/idle`
+  - payload: ASCII percent with one decimal place (example: `73.4%`)
 
 ## Blackbox Stream (`test_stand_controller`)
 

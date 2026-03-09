@@ -26,8 +26,8 @@ use crate::mqtt::queue::{self, OutboundMessage};
 use crate::mqtt::sensors::status::StateStatus;
 use crate::mqtt::sensors::EncodablePayload;
 use crate::mqtt::topics::{
-    self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_STATUS_CMD,
-    TOPIC_STATUS_SERVO, TOPIC_STATUS_STATE,
+    self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_METRIC_CPU_IDLE,
+    TOPIC_STATUS_CMD, TOPIC_STATUS_SERVO, TOPIC_STATUS_STATE,
 };
 use mainboard::wifi::WifiResourceSta;
 
@@ -291,6 +291,7 @@ async fn publish_outbound_message(
             | OutboundMessage::ServoSensor(_)
             | OutboundMessage::ServoStatus(_)
             | OutboundMessage::StateStatus(_)
+            | OutboundMessage::CpuIdleMetric(_)
     );
 
     let topic =
@@ -378,6 +379,10 @@ fn encode_outbound_message<'a>(
         OutboundMessage::CommandStatus(status) => EncodedMessage {
             topic: TOPIC_STATUS_CMD,
             payload: status.as_bytes(),
+        },
+        OutboundMessage::CpuIdleMetric(metric) => EncodedMessage {
+            topic: TOPIC_METRIC_CPU_IDLE,
+            payload: metric.as_bytes(),
         },
     };
 

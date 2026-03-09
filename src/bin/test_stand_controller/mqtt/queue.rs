@@ -4,7 +4,9 @@ use embassy_sync::channel::{Channel, TrySendError};
 use crate::mqtt::sensors::digital::ArmedPacket;
 use crate::mqtt::sensors::fast::{FastAdcChannel, FastAdcPacket};
 use crate::mqtt::sensors::slow::{ServoSensorPacket, SlowAdcChannel, SlowAdcPacket};
-use crate::mqtt::sensors::status::{CommandStatusPacket, ServoStatus, StateStatus};
+use crate::mqtt::sensors::status::{
+    CommandStatusPacket, CpuIdleMetricPacket, ServoStatus, StateStatus,
+};
 use crate::mqtt::sensors::temp::TempPacket;
 
 pub const OUTBOUND_QUEUE_CAPACITY: usize = 256;
@@ -22,6 +24,7 @@ pub enum OutboundMessage {
     StateStatus(StateStatus),
     ServoStatus(ServoStatus),
     CommandStatus(CommandStatusPacket),
+    CpuIdleMetric(CpuIdleMetricPacket),
 }
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
@@ -136,6 +139,12 @@ pub fn publish_servo_sensor(packet: ServoSensorPacket) -> Result<(), PublishErro
 
 pub fn publish_command_status(status: CommandStatusPacket) -> Result<(), PublishError> {
     enqueue(OutboundMessage::CommandStatus(status))
+}
+
+pub fn publish_cpu_idle_metric(idle_permille: u16) -> Result<(), PublishError> {
+    enqueue(OutboundMessage::CpuIdleMetric(
+        CpuIdleMetricPacket::from_idle_permille(idle_permille),
+    ))
 }
 
 pub fn publish_command_log(msg: &str) {

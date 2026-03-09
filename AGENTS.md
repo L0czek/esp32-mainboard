@@ -94,11 +94,14 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
-- CPU idle monitoring is implemented for `test_stand_controller`, `tmp107_sensor_test`, and
-  `blackbox_uart_counter`:
+- CPU idle monitoring is implemented for all binaries (`empty`, `www_test`, `railclock`,
+  `test_stand_controller`, `tmp107_sensor_test`, `blackbox_uart_counter`):
   - each binary starts RTOS with `esp_rtos::start_with_idle_hook(..., idle_monitor::idle_hook)`.
   - idle hook accumulates scheduler-idle (`WFI`) time using SYSTIMER unit0 ticks.
   - each binary has an `idle_metrics_task` that logs busy/idle percentages every 5 seconds.
+- `test_stand_controller` publishes the latest idle metric via MQTT:
+  - topic: `metric/cpu/idle` (retained).
+  - payload format: ASCII percent with one decimal place (e.g. `73.4%`).
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
   one-shot + shutdown mode at 20Hz (50ms interval) for best accuracy per datasheet.
   Each cycle: global one-shot trigger → 20ms conversion wait → global read.
