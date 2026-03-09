@@ -11,6 +11,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
   - `board.rs` — board-specific wiring and helper functions.
   - `power/` — power controller driver and helpers.
   - `tasks/` — async tasks used by binaries (ADC, UART, digital IO, etc.).
+  - `idle_monitor.rs` — shared CPU idle/busy monitoring hook + sampling helpers for ESP RTOS.
   - `tmp107/` — TMP107 UART daisy-chain driver split into protocol commands/registers and driver logic.
   - `bin/` — firmware entrypoints:
     - `www_test/` — web server + diagnostic target (primary example).
@@ -104,6 +105,15 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
 - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
   direction control via D0 wired to UART DTR.
+
+## CPU Idle Monitoring
+
+- `test_stand_controller`, `tmp107_sensor_test`, and `blackbox_uart_counter` now start
+  `esp_rtos` with `start_with_idle_hook(...)` and `mainboard::idle_monitor::idle_hook`.
+- The idle hook records time spent blocked in `WFI` (idle scheduler state) using the ESP32-C6
+  system timer.
+- Each of those binaries also runs a periodic async task that logs CPU busy/idle percentages and
+  idle/window milliseconds every 5 seconds.
 
 ## Blackbox Stream (`test_stand_controller`)
 

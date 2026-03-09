@@ -4,6 +4,7 @@
 Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107_sensor_test/`.
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
+- `src/idle_monitor.rs`: shared ESP RTOS idle hook + CPU utilization window tracker.
 - `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
 - `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (20Hz one-shot + shutdown, 20-sample batched MQTT publish).
@@ -93,6 +94,11 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
+- CPU idle monitoring is implemented for `test_stand_controller`, `tmp107_sensor_test`, and
+  `blackbox_uart_counter`:
+  - each binary starts RTOS with `esp_rtos::start_with_idle_hook(..., idle_monitor::idle_hook)`.
+  - idle hook accumulates scheduler-idle (`WFI`) time using SYSTIMER unit0 ticks.
+  - each binary has an `idle_metrics_task` that logs busy/idle percentages every 5 seconds.
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
   one-shot + shutdown mode at 20Hz (50ms interval) for best accuracy per datasheet.
   Each cycle: global one-shot trigger → 20ms conversion wait → global read.

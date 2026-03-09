@@ -18,6 +18,7 @@ mod temperature_collection;
 
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
+use mainboard::idle_monitor::{self, IdleWindowTracker};
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
     spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
@@ -27,6 +28,7 @@ use mainboard::wifi::{initialize_wifi_sta, WifiResourceSta};
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_time::Timer;
 use esp_hal::clock::CpuClock;
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::timer::timg::TimerGroup;
@@ -65,7 +67,11 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt =
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
+    esp_rtos::start_with_idle_hook(
+        timg0.timer0,
+        sw_interrupt.software_interrupt0,
+        idle_monitor::idle_hook,
+    );
     info!("Embassy initialized!");
 
     let board = create_board!(peripherals);
@@ -179,6 +185,11 @@ async fn main(spawner: Spawner) {
         .expect("Failed to spawn state_sequencer_task");
     info!("State sequencer task spawned");
 
+    spawner
+        .spawn(idle_metrics_task())
+        .expect("Failed to spawn idle_metrics_task");
+    info!("Idle monitor task spawned");
+
     SHUTDOWN_SIGNAL.wait().await;
     info!("Shutdown signal received");
 
@@ -204,5 +215,27 @@ async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
     loop {
         let stats = receiver.changed().await.clone();
         stats.dump();
+    }
+}
+
+#[embassy_executor::task]
+async fn idle_metrics_task() {
+    let mut tracker = IdleWindowTracker::new();
+
+    loop {
+        Timer::after_millis(idle_monitor::DEFAULT_REPORT_INTERVAL_MS).await;
+
+        let sample = tracker.sample_and_reset();
+        let busy_whole = sample.busy_permille / 10;
+        let busy_tenths = sample.busy_permille % 10;
+        let idle_whole = sample.idle_permille / 10;
+        let idle_tenths = sample.idle_permille % 10;
+        let idle_ms = idle_monitor::ticks_to_millis(sample.idle_ticks);
+        let window_ms = idle_monitor::ticks_to_millis(sample.window_ticks);
+
+        info!(
+            "CPU: busy {}.{}%, idle {}.{}% ({} ms idle / {} ms window)",
+            busy_whole, busy_tenths, idle_whole, idle_tenths, idle_ms, window_ms,
+        );
     }
 }
