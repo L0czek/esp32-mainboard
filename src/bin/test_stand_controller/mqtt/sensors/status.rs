@@ -1,4 +1,7 @@
-use crate::mqtt::codec::EncodeError;
+use crate::{
+    mqtt::{codec::EncodeError, sensors::EncodableEnum},
+    servo::state::ServoStatus,
+};
 
 pub const CMD_STATUS_MAX_LEN: usize = 64;
 
@@ -9,19 +12,17 @@ pub enum StateStatus {
     PostFire,
 }
 
-impl StateStatus {
-    pub const fn as_str(self) -> &'static str {
+impl EncodableEnum for StateStatus {
+    fn as_str(&self) -> &'static str {
         match self {
             Self::Armed => "ARMED",
             Self::Fire => "FIRE",
             Self::PostFire => "POSTFIRE",
         }
     }
+}
 
-    pub const fn as_bytes(self) -> &'static [u8] {
-        self.as_str().as_bytes()
-    }
-
+impl StateStatus {
     pub const fn as_log(self) -> &'static str {
         match self {
             Self::Armed => "State: ARMED",
@@ -31,34 +32,13 @@ impl StateStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
-pub enum ServoStatus {
-    Closed,
-    Opening,
-    Open,
-    Closing,
-}
-
-impl ServoStatus {
-    pub const fn as_str(self) -> &'static str {
+impl EncodableEnum for ServoStatus {
+    fn as_str(&self) -> &'static str {
         match self {
             Self::Closed => "CLOSED",
             Self::Opening => "OPENING",
             Self::Open => "OPEN",
             Self::Closing => "CLOSING",
-        }
-    }
-
-    pub const fn as_bytes(self) -> &'static [u8] {
-        self.as_str().as_bytes()
-    }
-
-    pub const fn as_log(self) -> &'static str {
-        match self {
-            Self::Closed => "Servo closed",
-            Self::Opening => "Servo opening",
-            Self::Open => "Servo open",
-            Self::Closing => "Servo closing",
         }
     }
 }

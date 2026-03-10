@@ -117,9 +117,7 @@ pub async fn temperature_collection_task(io: TemperatureCollectionIo) {
                     }
                 };
 
-                if publish_temperature_sensor(packet).is_err() {
-                    warn!("Dropping temp packet: queue full");
-                }
+                publish_temperature_sensor(packet)
             }
             sample_index = 0;
         }

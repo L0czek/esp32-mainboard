@@ -16,7 +16,6 @@ use static_cell::StaticCell;
 
 use crate::config::{MQTT_CLIENT_ID, MQTT_HOST, MQTT_PASSWORD, MQTT_PORT, MQTT_USER};
 use crate::mqtt::codec::EncodeError;
-use crate::mqtt::commands::servo::ServoCommand;
 use crate::mqtt::commands::shutdown::ShutdownCommand;
 use crate::mqtt::commands::state::StateCommand;
 use crate::mqtt::commands::{
@@ -24,11 +23,13 @@ use crate::mqtt::commands::{
 };
 use crate::mqtt::queue::{self, OutboundMessage};
 use crate::mqtt::sensors::status::StateStatus;
+use crate::mqtt::sensors::EncodableEnum;
 use crate::mqtt::sensors::EncodablePayload;
 use crate::mqtt::topics::{
     self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_STATUS_CMD,
     TOPIC_STATUS_SERVO, TOPIC_STATUS_STATE,
 };
+use crate::servo::command::ServoCommand;
 use mainboard::wifi::WifiResourceSta;
 
 const RECONNECT_DELAY_MS: u64 = 5000;

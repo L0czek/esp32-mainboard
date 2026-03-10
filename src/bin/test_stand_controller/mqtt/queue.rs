@@ -1,11 +1,13 @@
+use defmt::warn;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, TrySendError};
 
 use crate::mqtt::sensors::digital::ArmedPacket;
 use crate::mqtt::sensors::fast::{FastAdcChannel, FastAdcPacket};
 use crate::mqtt::sensors::slow::{ServoSensorPacket, SlowAdcChannel, SlowAdcPacket};
-use crate::mqtt::sensors::status::{CommandStatusPacket, ServoStatus, StateStatus};
+use crate::mqtt::sensors::status::{CommandStatusPacket, StateStatus};
 use crate::mqtt::sensors::temp::TempPacket;
+use crate::servo::state::ServoStatus;
 
 pub const OUTBOUND_QUEUE_CAPACITY: usize = 256;
 
@@ -22,6 +24,21 @@ pub enum OutboundMessage {
     StateStatus(StateStatus),
     ServoStatus(ServoStatus),
     CommandStatus(CommandStatusPacket),
+}
+
+impl OutboundMessage {
+    fn variant_name(&self) -> &'static str {
+        match self {
+            Self::FastAdc(_) => "FastAdc",
+            Self::SlowAdc(_) => "SlowAdc",
+            Self::Armed(_) => "Armed",
+            Self::Temp(_) => "Temp",
+            Self::ServoSensor(_) => "ServoSensor",
+            Self::StateStatus(_) => "StateStatus",
+            Self::ServoStatus(_) => "ServoStatus",
+            Self::CommandStatus(_) => "CommandStatus",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
@@ -114,33 +131,34 @@ pub fn publish_slow_sensors(batch: SlowSensorsBatch) -> Result<(), PublishError>
     Ok(())
 }
 
-pub fn publish_temperature_sensor(packet: TempPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::Temp(packet))
+pub fn publish_temperature_sensor(packet: TempPacket) {
+    enqueue_or_log(OutboundMessage::Temp(packet))
 }
 
-pub fn publish_armed_sensor(packet: ArmedPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::Armed(packet))
+pub fn publish_armed_sensor(packet: ArmedPacket) {
+    enqueue_or_log(OutboundMessage::Armed(packet))
 }
 
-pub fn publish_state_status(status: StateStatus) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::StateStatus(status))
+pub fn publish_state_status(status: StateStatus) {
+    enqueue_or_log(OutboundMessage::StateStatus(status))
 }
 
-pub fn publish_servo_status(status: ServoStatus) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::ServoStatus(status))
+pub fn publish_servo_status(status: ServoStatus) {
+    enqueue_or_log(OutboundMessage::ServoStatus(status))
 }
 
-pub fn publish_servo_sensor(packet: ServoSensorPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::ServoSensor(packet))
+pub fn publish_servo_sensor(packet: ServoSensorPacket) {
+    enqueue_or_log(OutboundMessage::ServoSensor(packet))
 }
 
-pub fn publish_command_status(status: CommandStatusPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::CommandStatus(status))
+pub fn publish_command_status(status: CommandStatusPacket) {
+    enqueue_or_log(OutboundMessage::CommandStatus(status))
 }
 
 pub fn publish_command_log(msg: &str) {
-    if let Ok(packet) = CommandStatusPacket::from_str(msg) {
-        let _ = publish_command_status(packet);
+    match CommandStatusPacket::from_str(msg) {
+        Ok(packet) => publish_command_status(packet),
+        Err(err) => defmt::error!("Error {} while encoding log {}", err, msg),
     }
 }
 
@@ -156,5 +174,15 @@ fn enqueue(message: OutboundMessage) -> Result<(), PublishError> {
     match OUTBOUND_QUEUE.try_send(message) {
         Ok(()) => Ok(()),
         Err(TrySendError::Full(_)) => Err(PublishError::QueueFull),
+    }
+}
+
+fn enqueue_or_log(message: OutboundMessage) {
+    let variant = message.variant_name(); // this is cheap, because we are only getting the reference
+    match enqueue(message) {
+        Ok(()) => (), //OK
+        Err(PublishError::QueueFull) => {
+            warn!("Failed to publish {}: queue full", variant);
+        }
     }
 }

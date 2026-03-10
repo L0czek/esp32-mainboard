@@ -18,6 +18,7 @@ use crate::mqtt::commands::state::StateCommand;
 use crate::mqtt::queue;
 use crate::mqtt::sensors::digital::ArmedPacket;
 use crate::mqtt::sensors::status::StateStatus;
+use crate::mqtt::sensors::EncodableEnum;
 
 const FIRE_BUZZER_DURATION_MS: u64 = 3000;
 
@@ -57,14 +58,14 @@ pub fn load_state() -> StateStatus {
 
 pub fn republish_sequencer_state() {
     let status = load_state();
-    let _ = queue::publish_state_status(status);
+    queue::publish_state_status(status);
 }
 
 pub fn republish_armed_state() {
     let value = LAST_ARMED_VALUE.load(Ordering::Relaxed);
     let ts = timestamp_ms();
     let packet = ArmedPacket::new(ts, value);
-    let _ = crate::mqtt::publish_armed_sensor(packet);
+    crate::mqtt::publish_armed_sensor(packet);
     crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital { value });
 }
 
@@ -91,15 +92,13 @@ fn publish_armed_change(pin: &Input<'_>) {
     let packet = ArmedPacket::new(timestamp_ms(), value);
 
     info!("Armed switch: {}", value);
-    if crate::mqtt::publish_armed_sensor(packet).is_err() {
-        warn!("Dropping armed packet: outbound queue full");
-    }
+    crate::mqtt::publish_armed_sensor(packet);
 }
 
 fn transition_state(state: &mut StateStatus, new_state: StateStatus) {
     *state = new_state;
     store_state(new_state);
-    let _ = queue::publish_state_status(new_state);
+    queue::publish_state_status(new_state);
     queue::publish_command_log(new_state.as_log());
     info!("State: {}", new_state.as_str());
 }
