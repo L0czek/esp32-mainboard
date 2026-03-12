@@ -16,6 +16,7 @@ mod uart;
 use esp_hal::analog::adc::AdcConfig;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
+use mainboard::idle_monitor::{self, IdleWindowTracker};
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
     spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
@@ -68,7 +69,11 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt =
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
+    esp_rtos::start_with_idle_hook(
+        timg0.timer0,
+        sw_interrupt.software_interrupt0,
+        idle_monitor::idle_hook,
+    );
     info!("Embassy initialized!");
 
     dump_adc_efuse_calibration();
@@ -116,6 +121,9 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(log_voltage_changes_task(adc))
         .expect("Failed to spawn log_voltage_changes_task");
+    spawner
+        .spawn(idle_metrics_task())
+        .expect("Failed to spawn idle_metrics_task");
 
     spawn_ext_interrupt_task(&spawner, board.GlobalInt, power, None);
 
@@ -255,5 +263,27 @@ async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
     loop {
         let stats = receiver.changed().await.clone();
         stats.dump();
+    }
+}
+
+#[embassy_executor::task]
+async fn idle_metrics_task() {
+    let mut tracker = IdleWindowTracker::new();
+
+    loop {
+        Timer::after_millis(idle_monitor::DEFAULT_REPORT_INTERVAL_MS).await;
+
+        let sample = tracker.sample_and_reset();
+        let busy_whole = sample.busy_permille / 10;
+        let busy_tenths = sample.busy_permille % 10;
+        let idle_whole = sample.idle_permille / 10;
+        let idle_tenths = sample.idle_permille % 10;
+        let idle_ms = idle_monitor::ticks_to_millis(sample.idle_ticks);
+        let window_ms = idle_monitor::ticks_to_millis(sample.window_ticks);
+
+        info!(
+            "CPU: busy {}.{}%, idle {}.{}% ({} ms idle / {} ms window)",
+            busy_whole, busy_tenths, idle_whole, idle_tenths, idle_ms, window_ms,
+        );
     }
 }

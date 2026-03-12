@@ -4,6 +4,7 @@ use crate::{
 };
 
 pub const CMD_STATUS_MAX_LEN: usize = 64;
+pub const CPU_IDLE_METRIC_MAX_LEN: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum StateStatus {
@@ -71,4 +72,56 @@ impl CommandStatusPacket {
     pub fn as_bytes(&self) -> &[u8] {
         &self.value[..self.len as usize]
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CpuIdleMetricPacket {
+    value: [u8; CPU_IDLE_METRIC_MAX_LEN],
+    len: u8,
+}
+
+impl CpuIdleMetricPacket {
+    #[must_use]
+    pub fn from_idle_permille(idle_permille: u16) -> Self {
+        let clamped = idle_permille.min(1_000);
+        let whole_percent = clamped / 10;
+        let decimal = clamped % 10;
+
+        let mut value = [0u8; CPU_IDLE_METRIC_MAX_LEN];
+        let mut len = write_u16_decimal(whole_percent, &mut value);
+        value[len] = b'.';
+        len += 1;
+        value[len] = b'0' + (decimal as u8);
+        len += 1;
+        value[len] = b'%';
+        len += 1;
+
+        Self {
+            value,
+            len: len as u8,
+        }
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.value[..self.len as usize]
+    }
+}
+
+fn write_u16_decimal(value: u16, out: &mut [u8; CPU_IDLE_METRIC_MAX_LEN]) -> usize {
+    if value >= 100 {
+        out[0] = b'1';
+        out[1] = b'0';
+        out[2] = b'0';
+        return 3;
+    }
+
+    if value >= 10 {
+        out[0] = b'0' + ((value / 10) as u8);
+        out[1] = b'0' + ((value % 10) as u8);
+        return 2;
+    }
+
+    out[0] = b'0' + (value as u8);
+    1
 }

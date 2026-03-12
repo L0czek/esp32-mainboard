@@ -1,7 +1,6 @@
 use crate::{
     config::{
-        SERVO_CLOSED_DEGREES, SERVO_MAX_PULSE_TICKS, SERVO_MIN_PULSE_TICKS,
-        SERVO_OPEN_DEGREES,
+        SERVO_CLOSED_DEGREES, SERVO_MAX_PULSE_TICKS, SERVO_MIN_PULSE_TICKS, SERVO_OPEN_DEGREES,
     },
     servo::state::ServoStatus,
 };
