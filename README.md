@@ -117,11 +117,11 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   milliseconds every 5 seconds.
 - `test_stand_controller` also publishes a retained MQTT metric with the latest idle value:
   - topic: `metric/cpu/idle`
-  - payload: ASCII percent with one decimal place (example: `73.4%`)
+  - payload: raw little-endian `u16` idle permille (`0..=1000`)
 - `test_stand_controller` also samples STA RSSI once per second while connected and publishes a
   retained MQTT metric:
   - topic: `metric/wifi/rssi`
-  - payload: ASCII signed integer in dBm (example: `-67`)
+  - payload: raw little-endian `i32` RSSI in dBm
 
 ## Blackbox Stream (`test_stand_controller`)
 

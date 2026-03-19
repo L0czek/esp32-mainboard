@@ -101,10 +101,10 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
   - each binary has an `idle_metrics_task` that logs busy/idle percentages every 5 seconds.
 - `test_stand_controller` publishes the latest idle metric via MQTT:
   - topic: `metric/cpu/idle` (retained).
-  - payload format: ASCII percent with one decimal place (e.g. `73.4%`).
+  - payload format: raw little-endian `u16` idle permille (`0..=1000`).
 - `test_stand_controller` publishes the latest STA RSSI metric via MQTT:
   - topic: `metric/wifi/rssi` (retained).
-  - payload format: ASCII signed integer dBm (e.g. `-67`).
+  - payload format: raw little-endian `i32` RSSI in dBm.
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
   one-shot + shutdown mode at 20Hz (50ms interval) for best accuracy per datasheet.
   Each cycle: global one-shot trigger → 20ms conversion wait → global read.
