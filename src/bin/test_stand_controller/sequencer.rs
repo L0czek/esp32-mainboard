@@ -79,6 +79,7 @@ fn publish_armed_change(value: u8) {
 
     info!("Armed switch: {}", value);
     crate::mqtt::publish_armed_sensor(packet);
+    crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital { value });
 }
 
 fn armed_value() -> u8 {
