@@ -36,3 +36,10 @@ pub const SERVO_CLOSED_DEGREES: u16 = 1800;
 pub const SERVO_FULL_RANGE_MS: u64 = 5000;
 
 pub const BLACKBOX_BAUD_RATE: u32 = 3_000_000;
+
+// =============================================
+//                    FIRE
+// =============================================
+
+pub const FIRE_TRIGGER_BYTE: u8 = 0x00;
+pub const FIRE_COUNTDOWN_DURATION_MS: u64 = 10_000;

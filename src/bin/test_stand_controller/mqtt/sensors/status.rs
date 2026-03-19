@@ -1,3 +1,5 @@
+use embassy_time::Instant;
+
 use crate::{
     mqtt::{codec::EncodeError, sensors::EncodableEnum},
     servo::state::ServoStatus,
@@ -10,6 +12,7 @@ pub const WIFI_RSSI_METRIC_MAX_LEN: usize = 12;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum StateStatus {
     Armed,
+    Countdown { end: Instant },
     Fire,
     PostFire,
 }
@@ -18,6 +21,7 @@ impl EncodableEnum for StateStatus {
     fn as_str(&self) -> &'static str {
         match self {
             Self::Armed => "ARMED",
+            Self::Countdown { .. } => "COUNTDOWN",
             Self::Fire => "FIRE",
             Self::PostFire => "POSTFIRE",
         }
@@ -28,6 +32,7 @@ impl StateStatus {
     pub const fn as_log(self) -> &'static str {
         match self {
             Self::Armed => "State: ARMED",
+            Self::Countdown { .. } => "State: COUNTDOWN",
             Self::Fire => "State: FIRE",
             Self::PostFire => "State: POSTFIRE",
         }

@@ -16,7 +16,7 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `src/bin/test_stand_controller/mqtt/commands/`: command decoding + handler traits + mock handlers.
 - `src/bin/test_stand_controller/mqtt/commands/shutdown.rs`: `SHUTDOWN` command decoder.
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
-- `src/bin/test_stand_controller/sequencer.rs`: state sequencer task (ARMED/FIRE/POSTFIRE state machine, signal light control, safety switch monitoring).
+- `src/bin/test_stand_controller/sequencer.rs`: state sequencer and armed-pin tasks (ARMED/FIRE/POSTFIRE state machine, fire trigger timing, signal light control, safety switch monitoring).
 - `src/bin/test_stand_controller/servo.rs`: servo controller task (MCPWM PWM, command channel, linear interpolation).
 - `src/bin/test_stand_controller/blackbox.rs`: UART1 blackbox data logger — streams sensor data to external recording device.
 - `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions, blackbox baud rate).
@@ -88,8 +88,8 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
   - Receives `StateCommand` (Fire/FireEnd/FireReset) from MQTT handler via `Channel<CriticalSectionRawMutex, StateCommand, 4>`.
   - FIRE transition requires safety switch to be armed (GPIO21 high); rejected otherwise.
   - Signal light (PCF8574 at 0x21): green=ARMED, buzzer+red→red=FIRE, green+red=POSTFIRE.
-  - Buzzer runs for 3 seconds on FIRE entry via non-blocking timer in the select loop.
-  - Monitors armed switch (GPIO21 D2) edge changes and publishes via MQTT.
+  - Owns the fire trigger (PCF8574 at 0x20) and a 3-second non-blocking FIRE buzzer timer before trigger activation.
+  - Dedicated armed-pin task monitors GPIO21 (D2) edge changes, updates cached armed state, and publishes via MQTT.
   - MQTT client delegates state management to sequencer channel (no inline state).
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.

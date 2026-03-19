@@ -183,12 +183,15 @@ async fn main(spawner: Spawner) {
     let signal_light_i2c = acquire_i2c_bus();
     let fire_trigger_i2c = acquire_i2c_bus();
     spawner
-        .spawn(sequencer::fire_sequencer_task(fire_trigger_i2c))
-        .expect("Failed to spawn fire_sequencer_task");
+        .spawn(sequencer::armed_pin_task(armed_pin))
+        .expect("Failed to spawn armed_pin_task");
     spawner
-        .spawn(sequencer::state_sequencer_task(armed_pin, signal_light_i2c))
+        .spawn(sequencer::state_sequencer_task(
+            signal_light_i2c,
+            fire_trigger_i2c,
+        ))
         .expect("Failed to spawn state_sequencer_task");
-    info!("State sequencer task spawned");
+    info!("Sequencer tasks spawned");
 
     spawner
         .spawn(idle_metrics_task())
