@@ -1,20 +1,19 @@
-use core::cell::Cell;
+use core::sync::atomic::AtomicU32;
 
-use critical_section::Mutex;
 use esp_hal::timer::systimer::{SystemTimer, Unit};
 
 /// Default reporting period for idle/busy logs.
 pub const DEFAULT_REPORT_INTERVAL_MS: u64 = 5_000;
 
-static TOTAL_IDLE_TICKS: Mutex<Cell<u64>> = Mutex::new(Cell::new(0));
+static TOTAL_IDLE_TICKS: AtomicU32 = AtomicU32::new(0);
 
 /// Idle/busy utilization sample over a measurement window.
 #[derive(Clone, Copy, Debug)]
 pub struct IdleWindowSample {
     /// Length of the measurement window in hardware timer ticks.
-    pub window_ticks: u64,
+    pub window_ticks: u32,
     /// Time spent in the idle hook in hardware timer ticks.
-    pub idle_ticks: u64,
+    pub idle_ticks: u32,
     /// Idle percentage in permille (0..=1000).
     pub idle_permille: u16,
     /// Busy percentage in permille (0..=1000).
@@ -24,7 +23,7 @@ pub struct IdleWindowSample {
 /// Tracks successive idle windows.
 pub struct IdleWindowTracker {
     window_start_ticks: u64,
-    window_start_idle_ticks: u64,
+    window_start_idle_ticks: u32,
 }
 
 impl IdleWindowTracker {
@@ -43,7 +42,8 @@ impl IdleWindowTracker {
         let end_ticks = monotonic_ticks();
         let end_idle_ticks = total_idle_ticks();
 
-        let window_ticks = end_ticks.wrapping_sub(self.window_start_ticks);
+        // We assume sampling is performed max every 20s. With 180Mhz clock, that gives us 180e6 * 20 = 3.6e9 < 4e9
+        let window_ticks = end_ticks.wrapping_sub(self.window_start_ticks) as u32;
         let idle_ticks = end_idle_ticks.wrapping_sub(self.window_start_idle_ticks);
 
         self.window_start_ticks = end_ticks;
@@ -72,22 +72,26 @@ impl Default for IdleWindowTracker {
 /// The hook blocks on WFI/WAITI and accumulates elapsed hardware timer ticks.
 pub extern "C" fn idle_hook() -> ! {
     loop {
-        critical_section::with(|cs| {
+        critical_section::with(|_cs| {
             // Keep timing + accumulation atomic with respect to scheduler preemption.
             let idle_start_ticks = monotonic_ticks();
             wait_for_interrupt();
             let idle_end_ticks = monotonic_ticks();
-            let idle_delta_ticks = idle_end_ticks.wrapping_sub(idle_start_ticks);
-            let total_idle_ticks = TOTAL_IDLE_TICKS.borrow(cs);
-            total_idle_ticks.set(total_idle_ticks.get().wrapping_add(idle_delta_ticks));
+            // we assume an interrupt won't take more than 2^32 ticks (~22s at 180MHz), so we won't miss any idle time due to wrapping
+            let idle_delta_ticks = idle_end_ticks.wrapping_sub(idle_start_ticks) as u32;
+            let total_idle_ticks = TOTAL_IDLE_TICKS.load(core::sync::atomic::Ordering::Relaxed);
+            TOTAL_IDLE_TICKS.store(
+                total_idle_ticks.wrapping_add(idle_delta_ticks),
+                core::sync::atomic::Ordering::Relaxed,
+            );
         });
     }
 }
 
 /// Returns cumulative idle ticks since boot.
 #[must_use]
-pub fn total_idle_ticks() -> u64 {
-    critical_section::with(|cs| TOTAL_IDLE_TICKS.borrow(cs).get())
+pub fn total_idle_ticks() -> u32 {
+    TOTAL_IDLE_TICKS.load(core::sync::atomic::Ordering::Relaxed)
 }
 
 /// Returns the current monotonic timestamp in hardware timer ticks.
@@ -98,25 +102,25 @@ pub fn monotonic_ticks() -> u64 {
 
 /// Returns hardware timer frequency in ticks per second.
 #[must_use]
-pub fn timer_ticks_per_second() -> u64 {
-    SystemTimer::ticks_per_second()
+pub fn timer_ticks_per_mili() -> u64 {
+    SystemTimer::ticks_per_second() / 1000
 }
 
 /// Converts hardware timer ticks to milliseconds.
 #[must_use]
-pub fn ticks_to_millis(ticks: u64) -> u64 {
-    let numerator = u128::from(ticks).saturating_mul(1_000);
-    let denominator = u128::from(timer_ticks_per_second().max(1));
-    (numerator / denominator) as u64
+pub fn ticks_to_millis(ticks: u32) -> u32 {
+    let numerator = u64::from(ticks);
+    let denominator = timer_ticks_per_mili();
+    (numerator / denominator) as u32
 }
 
-fn utilization_permille(part: u64, whole: u64) -> u16 {
+fn utilization_permille(part: u32, whole: u32) -> u16 {
     if whole == 0 {
         return 0;
     }
 
-    let ratio = u128::from(part).saturating_mul(1_000) / u128::from(whole);
-    u16::try_from(ratio.min(u128::from(1_000u16))).unwrap_or(1_000)
+    let ratio = u64::from(part).saturating_mul(1_000) / u64::from(whole);
+    u16::try_from(ratio.min(u64::from(1_000u16))).unwrap_or(1_000)
 }
 
 #[inline]

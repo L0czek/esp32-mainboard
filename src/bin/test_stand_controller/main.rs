@@ -234,10 +234,6 @@ async fn idle_metrics_task() {
         Timer::after_millis(idle_monitor::DEFAULT_REPORT_INTERVAL_MS).await;
 
         let sample = tracker.sample_and_reset();
-        let busy_whole = sample.busy_permille / 10;
-        let busy_tenths = sample.busy_permille % 10;
-        let idle_whole = sample.idle_permille / 10;
-        let idle_tenths = sample.idle_permille % 10;
         let idle_ms = idle_monitor::ticks_to_millis(sample.idle_ticks);
         let window_ms = idle_monitor::ticks_to_millis(sample.window_ticks);
 
@@ -246,8 +242,8 @@ async fn idle_metrics_task() {
         }
 
         info!(
-            "CPU: busy {}.{}%, idle {}.{}% ({} ms idle / {} ms window)",
-            busy_whole, busy_tenths, idle_whole, idle_tenths, idle_ms, window_ms,
+            "CPU: busy {}‰, idle {}‰ ({} ms idle / {} ms window)",
+            sample.busy_permille, sample.idle_permille, idle_ms, window_ms,
         );
     }
 }
