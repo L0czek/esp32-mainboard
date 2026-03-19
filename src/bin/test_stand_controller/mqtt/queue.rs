@@ -5,7 +5,9 @@ use embassy_sync::channel::{Channel, TrySendError};
 use crate::mqtt::sensors::digital::ArmedPacket;
 use crate::mqtt::sensors::fast::{FastAdcChannel, FastAdcPacket};
 use crate::mqtt::sensors::slow::{ServoSensorPacket, SlowAdcChannel, SlowAdcPacket};
-use crate::mqtt::sensors::status::{CommandStatusPacket, CpuIdleMetricPacket, StateStatus};
+use crate::mqtt::sensors::status::{
+    CommandStatusPacket, CpuIdleMetricPacket, StateStatus, WifiRssiMetricPacket,
+};
 use crate::mqtt::sensors::temp::TempPacket;
 use crate::servo::state::ServoStatus;
 
@@ -25,6 +27,7 @@ pub enum OutboundMessage {
     ServoStatus(ServoStatus),
     CommandStatus(CommandStatusPacket),
     CpuIdleMetric(CpuIdleMetricPacket),
+    WifiRssiMetric(WifiRssiMetricPacket),
 }
 
 impl OutboundMessage {
@@ -39,6 +42,7 @@ impl OutboundMessage {
             Self::ServoStatus(_) => "ServoStatus",
             Self::CommandStatus(_) => "CommandStatus",
             Self::CpuIdleMetric(_) => "CpuIdleMetric",
+            Self::WifiRssiMetric(_) => "WifiRssiMetric",
         }
     }
 }
@@ -160,6 +164,12 @@ pub fn publish_command_status(status: CommandStatusPacket) {
 pub fn publish_cpu_idle_metric(idle_permille: u16) -> Result<(), PublishError> {
     enqueue(OutboundMessage::CpuIdleMetric(
         CpuIdleMetricPacket::from_idle_permille(idle_permille),
+    ))
+}
+
+pub fn publish_wifi_rssi_metric(rssi_dbm: i32) -> Result<(), PublishError> {
+    enqueue(OutboundMessage::WifiRssiMetric(
+        WifiRssiMetricPacket::from_dbm(rssi_dbm),
     ))
 }
 

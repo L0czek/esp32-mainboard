@@ -23,7 +23,7 @@ use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
     spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
 };
-use mainboard::wifi::{initialize_wifi_sta, WifiResourceSta};
+use mainboard::wifi::{initialize_wifi_sta, wifi_rssi_receiver, WifiResourceSta};
 
 use defmt::{info, warn};
 use embassy_executor::Spawner;
@@ -137,6 +137,11 @@ async fn main(spawner: Spawner) {
     info!("MQTT task spawned");
 
     spawner
+        .spawn(wifi_rssi_metric_task())
+        .expect("Failed to spawn wifi_rssi_metric_task");
+    info!("WiFi RSSI metric task spawned");
+
+    spawner
         .spawn(sensor_collection::sensor_collection_task(
             sensor_collection_io,
         ))
@@ -241,5 +246,23 @@ async fn idle_metrics_task() {
             "CPU: busy {}.{}%, idle {}.{}% ({} ms idle / {} ms window)",
             busy_whole, busy_tenths, idle_whole, idle_tenths, idle_ms, window_ms,
         );
+    }
+}
+
+#[embassy_executor::task]
+async fn wifi_rssi_metric_task() {
+    let Some(mut receiver) = wifi_rssi_receiver() else {
+        warn!("Failed to create WiFi RSSI receiver");
+        return;
+    };
+
+    loop {
+        let Some(rssi_dbm) = receiver.changed().await else {
+            continue;
+        };
+
+        if let Err(error) = mqtt::queue::publish_wifi_rssi_metric(rssi_dbm) {
+            warn!("WiFi RSSI metric publish failed: {:?}", error);
+        }
     }
 }

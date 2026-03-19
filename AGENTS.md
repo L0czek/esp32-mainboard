@@ -5,7 +5,7 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/idle_monitor.rs`: shared ESP RTOS idle hook + CPU utilization window tracker.
-- `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
+- `src/wifi.rs`: shared WiFi init/reconnect logic and STA RSSI watch updates.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
 - `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (20Hz one-shot + shutdown, 20-sample batched MQTT publish).
 - `src/bin/tmp107_sensor_test/main.rs`: standalone TMP107 diagnostic binary (discover chain, one-shot read, log values, blink LED pattern).
@@ -102,6 +102,9 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 - `test_stand_controller` publishes the latest idle metric via MQTT:
   - topic: `metric/cpu/idle` (retained).
   - payload format: ASCII percent with one decimal place (e.g. `73.4%`).
+- `test_stand_controller` publishes the latest STA RSSI metric via MQTT:
+  - topic: `metric/wifi/rssi` (retained).
+  - payload format: ASCII signed integer dBm (e.g. `-67`).
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
   one-shot + shutdown mode at 20Hz (50ms interval) for best accuracy per datasheet.
   Each cycle: global one-shot trigger → 20ms conversion wait → global read.
