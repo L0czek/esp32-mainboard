@@ -42,6 +42,8 @@ pub fn load_state() -> StateStatus {
         },
         2 => StateStatus::Fire,
         3 => StateStatus::PostFire,
+        4 => StateStatus::LampTest,
+        5 => StateStatus::CameraTest,
         _ => StateStatus::Armed,
     }
 }
@@ -56,7 +58,6 @@ pub fn republish_armed_state() {
     let ts = now_ms();
     let packet = ArmedPacket::new(ts, value);
     crate::mqtt::publish_armed_sensor(packet);
-    crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital { value });
 }
 
 fn store_state(status: StateStatus) {
@@ -65,6 +66,8 @@ fn store_state(status: StateStatus) {
         StateStatus::Countdown { .. } => 1,
         StateStatus::Fire => 2,
         StateStatus::PostFire => 3,
+        StateStatus::LampTest => 4,
+        StateStatus::CameraTest => 5,
     };
     CURRENT_STATE.store(v, Ordering::Relaxed);
 }
@@ -82,12 +85,8 @@ fn publish_armed_change(value: u8) {
     crate::blackbox::send_to_blackbox(crate::blackbox::BlackboxPacket::Digital { value });
 }
 
-fn armed_value() -> u8 {
-    LAST_ARMED_VALUE.load(Ordering::Relaxed)
-}
-
 fn is_safety_armed() -> bool {
-    armed_value() != 0
+    LAST_ARMED_VALUE.load(Ordering::Relaxed) != 0
 }
 
 #[embassy_executor::task]
@@ -179,6 +178,17 @@ impl Sequencer {
                 red: true,
                 ..SignalLightConfig::default()
             },
+            StateStatus::LampTest { .. } => SignalLightConfig {
+                // enable all used, we are testing
+                green: true,
+                red: true,
+                buzzer: true,
+                ..SignalLightConfig::default()
+            },
+            StateStatus::CameraTest { .. } => SignalLightConfig {
+                // all off just for fun, this is a camera test
+                ..SignalLightConfig::default()
+            },
         };
 
         // set camera
@@ -191,11 +201,16 @@ impl Sequencer {
             StateStatus::PostFire => {
                 camera_shutter::send_camera_command(CameraShutterCommand::Stop)
             }
+            StateStatus::LampTest => {}
+            StateStatus::CameraTest => {} // Camera shutter is handled in the task state handling
         }
 
         // trigger
         match new_state {
-            StateStatus::Armed | StateStatus::Countdown { .. } => {} // No trigger action
+            StateStatus::Armed
+            | StateStatus::Countdown { .. }
+            | StateStatus::LampTest
+            | StateStatus::CameraTest => {} // No trigger action
             StateStatus::Fire => {
                 if let Err(_e) = self.fire_trigger.trigger() {
                     warn!("Failed to activate fire trigger");
@@ -251,6 +266,18 @@ pub async fn state_sequencer_task(signal_light_i2c: I2cType, fire_trigger_i2c: I
                     }
                 }
             }
+            StateStatus::LampTest => {
+                // In lamp test we just ignore commands and end tests after 2 seconds, then transition back to armed
+                Timer::after(Duration::from_millis(2000)).await;
+                sequencer.transition_state(StateStatus::Armed);
+            }
+            StateStatus::CameraTest => {
+                // In camera test we just ignore commands and end tests after 5 seconds, then transition back to armed
+                camera_shutter::send_camera_command(CameraShutterCommand::Record);
+                Timer::after(Duration::from_millis(5000)).await;
+                camera_shutter::send_camera_command(CameraShutterCommand::Stop);
+                sequencer.transition_state(StateStatus::Armed);
+            }
         }
     }
 }
@@ -303,6 +330,22 @@ fn handle_command(command: StateCommand, sequencer: &mut Sequencer) {
                 return;
             }
             sequencer.transition_state(StateStatus::Armed);
+        }
+        StateCommand::LampTest => {
+            if sequencer.state != StateStatus::Armed {
+                warn!("LAMP_TEST rejected: not in ARMED state");
+                queue::publish_command_log("LAMP_TEST rejected: not in ARMED state");
+                return;
+            }
+            sequencer.transition_state(StateStatus::LampTest);
+        }
+        StateCommand::CameraTest => {
+            if sequencer.state != StateStatus::Armed {
+                warn!("CAMERA_TEST rejected: not in ARMED state");
+                queue::publish_command_log("CAMERA_TEST rejected: not in ARMED state");
+                return;
+            }
+            sequencer.transition_state(StateStatus::CameraTest);
         }
     }
 }

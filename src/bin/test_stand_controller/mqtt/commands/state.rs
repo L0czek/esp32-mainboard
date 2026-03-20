@@ -8,6 +8,8 @@ pub enum StateCommand {
     SafetySafe,
     FireEnd,
     FireReset,
+    LampTest,
+    CameraTest,
 }
 
 impl Command for StateCommand {
@@ -17,6 +19,8 @@ impl Command for StateCommand {
             b"ABORT" => Some(Self::Abort),
             b"FIRE_END" => Some(Self::FireEnd),
             b"FIRE_RESET" => Some(Self::FireReset),
+            b"LAMP_TEST" => Some(Self::LampTest),
+            b"CAMERA_TEST" => Some(Self::CameraTest),
             _ => None,
         }
     }

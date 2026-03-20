@@ -15,6 +15,8 @@ pub enum StateStatus {
     Countdown { end: Instant },
     Fire,
     PostFire,
+    LampTest,
+    CameraTest,
 }
 
 impl EncodableEnum for StateStatus {
@@ -24,6 +26,8 @@ impl EncodableEnum for StateStatus {
             Self::Countdown { .. } => "COUNTDOWN",
             Self::Fire => "FIRE",
             Self::PostFire => "POSTFIRE",
+            Self::LampTest => "LAMPTEST",
+            Self::CameraTest => "CAMERATEST",
         }
     }
 }
@@ -35,6 +39,8 @@ impl StateStatus {
             Self::Countdown { .. } => "State: COUNTDOWN",
             Self::Fire => "State: FIRE",
             Self::PostFire => "State: POSTFIRE",
+            Self::LampTest => "State: LAMPTEST",
+            Self::CameraTest => "State: CAMERATEST",
         }
     }
 }
