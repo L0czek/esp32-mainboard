@@ -1,0 +1,4 @@
+# Override the firmware's riscv target — this is an x86 host tool.
+# NOTE: Run with `RUSTFLAGS=""` to clear the parent repo's nightly-only rustflags.
+[build]
+target = "x86_64-unknown-linux-gnu"

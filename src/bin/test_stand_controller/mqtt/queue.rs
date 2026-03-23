@@ -12,6 +12,7 @@ use crate::mqtt::sensors::temp::TempPacket;
 use crate::servo::state::ServoStatus;
 
 pub const OUTBOUND_QUEUE_CAPACITY: usize = 256;
+pub const DEFMT_LOG_CHUNK_SIZE: usize = 128;
 
 static OUTBOUND_QUEUE: Channel<CriticalSectionRawMutex, OutboundMessage, OUTBOUND_QUEUE_CAPACITY> =
     Channel::new();
@@ -28,6 +29,7 @@ pub enum OutboundMessage {
     CommandStatus(CommandStatusPacket),
     CpuIdleMetric(CpuIdleMetricPacket),
     WifiRssiMetric(WifiRssiMetricPacket),
+    DefmtLog(DefmtLogChunk),
 }
 
 impl OutboundMessage {
@@ -43,6 +45,7 @@ impl OutboundMessage {
             Self::CommandStatus(_) => "CommandStatus",
             Self::CpuIdleMetric(_) => "CpuIdleMetric",
             Self::WifiRssiMetric(_) => "WifiRssiMetric",
+            Self::DefmtLog(_) => "DefmtLog",
         }
     }
 }
@@ -50,6 +53,32 @@ impl OutboundMessage {
 #[derive(Debug, Clone, Copy, defmt::Format)]
 pub enum PublishError {
     QueueFull,
+    PayloadTooLarge,
+}
+
+#[derive(Debug, Clone)]
+pub struct DefmtLogChunk {
+    len: usize,
+    bytes: [u8; DEFMT_LOG_CHUNK_SIZE],
+}
+
+impl DefmtLogChunk {
+    fn from_slice(bytes: &[u8]) -> Result<Self, PublishError> {
+        if bytes.len() > DEFMT_LOG_CHUNK_SIZE {
+            return Err(PublishError::PayloadTooLarge);
+        }
+
+        let mut chunk = Self {
+            len: bytes.len(),
+            bytes: [0; DEFMT_LOG_CHUNK_SIZE],
+        };
+        chunk.bytes[..bytes.len()].copy_from_slice(bytes);
+        Ok(chunk)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +202,11 @@ pub fn publish_wifi_rssi_metric(rssi_dbm: i32) -> Result<(), PublishError> {
     ))
 }
 
+pub fn publish_defmt_log_chunk(bytes: &[u8]) -> Result<(), PublishError> {
+    let chunk = DefmtLogChunk::from_slice(bytes)?;
+    enqueue(OutboundMessage::DefmtLog(chunk))
+}
+
 pub fn publish_command_log(msg: &str) {
     match CommandStatusPacket::from_str(msg) {
         Ok(packet) => publish_command_status(packet),
@@ -201,6 +235,9 @@ fn enqueue_or_log(message: OutboundMessage) {
         Ok(()) => (), //OK
         Err(PublishError::QueueFull) => {
             warn!("Failed to publish {}: queue full", variant);
+        }
+        Err(PublishError::PayloadTooLarge) => {
+            warn!("Failed to publish {}: payload too large", variant);
         }
     }
 }

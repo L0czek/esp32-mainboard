@@ -26,8 +26,9 @@ use crate::mqtt::sensors::status::StateStatus;
 use crate::mqtt::sensors::EncodableEnum;
 use crate::mqtt::sensors::EncodablePayload;
 use crate::mqtt::topics::{
-    self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_METRIC_CPU_IDLE,
-    TOPIC_METRIC_WIFI_RSSI, TOPIC_STATUS_CMD, TOPIC_STATUS_SERVO, TOPIC_STATUS_STATE,
+    self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_LOG_DEFMT,
+    TOPIC_METRIC_CPU_IDLE, TOPIC_METRIC_WIFI_RSSI, TOPIC_STATUS_CMD, TOPIC_STATUS_SERVO,
+    TOPIC_STATUS_STATE,
 };
 use crate::servo::command::ServoCommand;
 use mainboard::wifi::WifiResourceSta;
@@ -389,6 +390,10 @@ fn encode_outbound_message<'a>(
         OutboundMessage::WifiRssiMetric(metric) => EncodedMessage {
             topic: TOPIC_METRIC_WIFI_RSSI,
             payload: metric.as_bytes(),
+        },
+        OutboundMessage::DefmtLog(chunk) => EncodedMessage {
+            topic: TOPIC_LOG_DEFMT,
+            payload: chunk.as_bytes(),
         },
     };
 
