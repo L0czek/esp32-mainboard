@@ -129,8 +129,13 @@ env RUSTFLAGS='' cargo run -- \
   --elf /path/to/target/riscv32imac-unknown-none-elf/debug/test_stand_controller \
   --host broker.local \
   --port 1883 \
+  --username "$MQTT_USER" \
+  --password "$MQTT_PASSWORD" \
   --topic log/defmt
 ```
+
+The decoder also reads broker credentials from `MQTT_USER` and `MQTT_PASSWORD` if you omit the
+flags.
 
 The decoder fails fast if the ELF does not match the incoming `defmt` stream metadata.
 

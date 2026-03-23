@@ -357,25 +357,22 @@ Implemented:
   telemetry/status, then `defmt` logs.
 - `defmt` logs stay best effort and cannot consume the capacity reserved for normal publications.
 
-- [ ] **TODO: Add MQTT authentication support to the host decoder**
+- [x] **TODO: Add MQTT authentication support to the host decoder**
 
-Current gap:
-- firmware publish path supports `MQTT_USER` / `MQTT_PASSWORD`
-- `tools/defmt-mqtt-decoder` does not yet accept or apply broker credentials
-
-Required follow-up:
-- add username/password CLI options or env-backed equivalents
-- pass them into the host tool's MQTT connection configuration
+Implemented:
+- `tools/defmt-mqtt-decoder` now accepts `--username` / `--password`
+- the same values can also come from `MQTT_USER` / `MQTT_PASSWORD`
+- the MQTT subscriber applies credentials when both values are present
 
 - [ ] **TODO: Strengthen end-to-end decode verification**
 
 Current gap:
 - tests cover ring FIFO behavior and MQTT payload forwarding only
-- they do not instantiate the real host decoder with matching ELF metadata
-- split-payload handling and malformed-frame recovery are now covered by host decoder unit tests,
-  but live firmware-bytes-to-host-decoder compatibility is still not proven
+- split-payload handling and malformed-frame recovery are covered by host decoder unit tests
+- a fixture-based smoke test now instantiates the real host decoder with a matching ELF and feeds
+  it bytes emitted by a real `defmt` logger
+- live firmware-bytes-to-host-decoder formatting compatibility is still not fully proven
 
 Required follow-up:
-- add the strongest broker-free integration test practical with real encoded `defmt` bytes plus a
-  matching ELF fixture, or
+- extend the broker-free fixture coverage so it asserts decoded formatted output, or
 - perform and record a live hardware + broker smoke verification

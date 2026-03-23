@@ -90,6 +90,12 @@ impl PayloadHandler for DefmtStreamDecoder {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    use object::{Object, ObjectSection};
 
     use super::*;
 
@@ -178,5 +184,174 @@ mod tests {
 
         let decode_error = error.downcast_ref::<DecodeError>();
         assert!(matches!(decode_error, Some(DecodeError::Malformed)));
+    }
+
+    #[test]
+    fn accepts_real_fixture_stream_from_matching_elf_without_decode_errors() {
+        let (elf, bytes) = build_fixture_stream();
+        let mut decoder = DefmtStreamDecoder::from_elf(&elf).unwrap();
+        let split = bytes.len() / 2;
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        decoder
+            .process_bytes_with(&bytes[..split], &mut stdout, &mut stderr)
+            .unwrap();
+        decoder
+            .process_bytes_with(&bytes[split..], &mut stdout, &mut stderr)
+            .unwrap();
+    }
+
+    fn build_fixture_stream() -> (PathBuf, Vec<u8>) {
+        let manifest_path = fixture_manifest_path();
+        run_fixture_command(&manifest_path, ["build", "--quiet"]);
+        let fixture_dir = manifest_path.parent().unwrap();
+
+        let output = Command::new(cargo_bin())
+            .args(["run", "--quiet", "--manifest-path"])
+            .arg(&manifest_path)
+            .current_dir(fixture_dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        let elf = build_decoder_fixture_elf(&manifest_path);
+        assert!(elf.exists(), "missing fixture ELF at {}", elf.display());
+        assert!(!output.stdout.is_empty(), "fixture produced no defmt bytes");
+
+        (elf, output.stdout)
+    }
+
+    fn build_decoder_fixture_elf(manifest_path: &Path) -> PathBuf {
+        let fixture_elf = fixture_binary_path(manifest_path);
+        let fixture_dir = manifest_path.parent().unwrap();
+        let build_dir = fixture_dir.join("target").join("decoder-test");
+        let merged_elf = build_dir.join("defmt-fixture-with-section");
+        let defmt_path = build_dir.join("defmt.bin");
+
+        fs::create_dir_all(&build_dir).unwrap();
+
+        let fixture_bytes = fs::read(&fixture_elf).unwrap();
+        let defmt_object = extract_defmt_object(&build_dir);
+        let defmt_bytes = fs::read(&defmt_object).unwrap();
+        let mut merged = Vec::new();
+        append_matching_sections(&defmt_bytes, &mut merged, |name| {
+            name.starts_with(".defmt.prim.")
+        });
+        append_matching_sections(&fixture_bytes, &mut merged, |name| {
+            name.starts_with(".defmt.info.")
+        });
+        append_matching_sections(&defmt_bytes, &mut merged, |name| {
+            name.starts_with(".defmt.") && !name.starts_with(".defmt.prim.") && name != ".defmt.end"
+        });
+        append_matching_sections(&defmt_bytes, &mut merged, |name| name == ".defmt.end");
+        append_matching_sections(&fixture_bytes, &mut merged, |name| name == ".defmt.end");
+        fs::write(&defmt_path, merged).unwrap();
+        fs::copy(&fixture_elf, &merged_elf).unwrap();
+
+        let status = Command::new("objcopy")
+            .args(["--add-section", ".defmt=target/decoder-test/defmt.bin"])
+            .args(["--set-section-flags", ".defmt=alloc,readonly,contents"])
+            .arg("target/decoder-test/defmt-fixture-with-section")
+            .current_dir(fixture_dir)
+            .status()
+            .unwrap();
+        assert!(status.success(), "objcopy failed to add .defmt section");
+
+        merged_elf
+    }
+
+    fn run_fixture_command(manifest_path: &Path, args: [&str; 2]) {
+        let fixture_dir = manifest_path.parent().unwrap();
+        let status = Command::new(cargo_bin())
+            .args(args)
+            .arg("--manifest-path")
+            .arg(manifest_path)
+            .current_dir(fixture_dir)
+            .status()
+            .unwrap();
+        assert!(status.success(), "fixture cargo command failed");
+    }
+
+    fn cargo_bin() -> String {
+        env::var("CARGO").unwrap_or_else(|_| String::from("cargo"))
+    }
+
+    fn extract_defmt_object(build_dir: &Path) -> PathBuf {
+        let defmt_rlib = build_dir
+            .parent()
+            .unwrap()
+            .join("x86_64-unknown-linux-gnu")
+            .join("debug")
+            .join("deps");
+        let defmt_rlib = fs::read_dir(defmt_rlib)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with("libdefmt-") && name.ends_with(".rlib"))
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        let member_name = String::from_utf8(
+            Command::new("ar")
+                .args(["t", defmt_rlib.to_str().unwrap()])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .lines()
+        .nth(1)
+        .unwrap()
+        .to_owned();
+        let object_path = build_dir.join("defmt-object.o");
+        let object_bytes = Command::new("ar")
+            .args(["p", defmt_rlib.to_str().unwrap(), &member_name])
+            .output()
+            .unwrap()
+            .stdout;
+        fs::write(&object_path, object_bytes).unwrap();
+
+        object_path
+    }
+
+    fn append_matching_sections(
+        object_bytes: &[u8],
+        out: &mut Vec<u8>,
+        mut predicate: impl FnMut(&str) -> bool,
+    ) {
+        let file = object::File::parse(object_bytes).unwrap();
+
+        for section in file.sections() {
+            let Ok(name) = section.name() else {
+                continue;
+            };
+            if !predicate(name) {
+                continue;
+            }
+
+            out.extend(section.data().unwrap());
+        }
+    }
+
+    fn fixture_manifest_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("defmt-fixture")
+            .join("Cargo.toml")
+    }
+
+    fn fixture_binary_path(manifest_path: &Path) -> PathBuf {
+        manifest_path
+            .parent()
+            .unwrap()
+            .join("target")
+            .join("x86_64-unknown-linux-gnu")
+            .join("debug")
+            .join("defmt-fixture")
     }
 }

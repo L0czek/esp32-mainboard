@@ -21,6 +21,12 @@ struct Cli {
     #[arg(long, default_value = "defmt-mqtt-decoder")]
     client_id: String,
 
+    #[arg(long, env = "MQTT_USER")]
+    username: Option<String>,
+
+    #[arg(long, env = "MQTT_PASSWORD")]
+    password: Option<String>,
+
     #[arg(long, default_value_t = 5)]
     keep_alive_secs: u64,
 
@@ -35,6 +41,8 @@ fn main() -> Result<()> {
         host: &cli.host,
         port: cli.port,
         topic: &cli.topic,
+        username: cli.username.as_deref(),
+        password: cli.password.as_deref(),
         keep_alive_secs: cli.keep_alive_secs,
         request_capacity: 16,
     };

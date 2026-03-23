@@ -31,10 +31,11 @@
 - `tools/defmt-mqtt-decoder/`
   Native host tool for live MQTT `defmt` logs.
   - `src/main.rs`: CLI entry point
-  - `src/mqtt.rs`: MQTT subscription loop and event forwarding
+  - `src/mqtt.rs`: MQTT subscription loop, broker credential handling, and event forwarding
   - `src/decoder.rs`: ELF loading and `defmt-decoder` stream processing
   - `tests/stream_decode.rs`: verifies MQTT event-to-payload forwarding
   - `tests/defmt_ring.rs`: host-side tests for the shared ring implementation via path include
+  - `tests/fixtures/defmt-fixture/`: tiny host-side `defmt` emitter used for decoder smoke tests
 
 ## Defmt MQTT Logging Design
 
@@ -76,6 +77,7 @@ Host-side automated verification covers:
 - shared byte-ring behavior
 - MQTT event payload forwarding
 - decoder handling for split payloads and malformed-frame recovery
+- decoder smoke coverage with a real fixture ELF and emitted `defmt` byte stream
 - native build/test/lint of the decoder tool
 
 Firmware-side automated verification covers:
