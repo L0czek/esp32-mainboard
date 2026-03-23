@@ -77,7 +77,8 @@ Host-side automated verification covers:
 - shared byte-ring behavior
 - MQTT event payload forwarding
 - decoder handling for split payloads and malformed-frame recovery
-- decoder smoke coverage with a real fixture ELF and emitted `defmt` byte stream
+- decoder smoke coverage with a real emitted `defmt` byte stream and an object-file fixture that
+  asserts the decoded output line
 - native build/test/lint of the decoder tool
 
 Firmware-side automated verification covers:

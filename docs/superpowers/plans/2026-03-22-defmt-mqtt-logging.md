@@ -364,15 +364,13 @@ Implemented:
 - the same values can also come from `MQTT_USER` / `MQTT_PASSWORD`
 - the MQTT subscriber applies credentials when both values are present
 
-- [ ] **TODO: Strengthen end-to-end decode verification**
+- [x] **TODO: Strengthen end-to-end decode verification**
 
-Current gap:
-- tests cover ring FIFO behavior and MQTT payload forwarding only
-- split-payload handling and malformed-frame recovery are covered by host decoder unit tests
-- a fixture-based smoke test now instantiates the real host decoder with a matching ELF and feeds
-  it bytes emitted by a real `defmt` logger
-- live firmware-bytes-to-host-decoder formatting compatibility is still not fully proven
+Implemented:
+- split-payload handling and malformed-frame recovery remain covered by host decoder unit tests
+- the broker-free fixture smoke test now feeds real emitted `defmt` bytes into the real host
+  decoder and asserts the decoded output line content and level
+- this closes the host-side verification gap without adding broker or hardware dependencies
 
-Required follow-up:
-- extend the broker-free fixture coverage so it asserts decoded formatted output, or
-- perform and record a live hardware + broker smoke verification
+Still not run:
+- live hardware + broker smoke verification for the full firmware publisher path

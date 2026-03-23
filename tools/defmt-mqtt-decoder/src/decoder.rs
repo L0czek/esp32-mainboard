@@ -95,7 +95,11 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    use object::{Object, ObjectSection};
+    use object::write::{Object as WriteObject, Symbol, SymbolSection};
+    use object::{
+        Architecture, BinaryFormat, Endianness, Object, ObjectSymbol, SectionKind, SymbolFlags,
+        SymbolKind, SymbolScope,
+    };
 
     use super::*;
 
@@ -200,65 +204,82 @@ mod tests {
         decoder
             .process_bytes_with(&bytes[split..], &mut stdout, &mut stderr)
             .unwrap();
+
+        let stdout = String::from_utf8(stdout).unwrap();
+        let stderr = String::from_utf8(stderr).unwrap();
+
+        assert!(
+            stdout.contains("fixture=42"),
+            "decoded output missing fixture payload: {stdout:?}"
+        );
+        assert!(
+            stdout.contains("INFO"),
+            "decoded output missing log level: {stdout:?}"
+        );
+        assert_eq!(
+            stdout.lines().count(),
+            1,
+            "expected one decoded log line, got: {stdout:?}"
+        );
+        assert!(stderr.is_empty(), "unexpected decoder warnings: {stderr:?}");
     }
 
     fn build_fixture_stream() -> (PathBuf, Vec<u8>) {
         let manifest_path = fixture_manifest_path();
         run_fixture_command(&manifest_path, ["build", "--quiet"]);
         let fixture_dir = manifest_path.parent().unwrap();
+        let binary = fixture_binary_path(&manifest_path);
 
-        let output = Command::new(cargo_bin())
-            .args(["run", "--quiet", "--manifest-path"])
-            .arg(&manifest_path)
+        let output = Command::new(&binary)
             .current_dir(fixture_dir)
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
 
-        let elf = build_decoder_fixture_elf(&manifest_path);
+        let elf = build_decoder_fixture_object(&manifest_path, &output.stdout);
         assert!(elf.exists(), "missing fixture ELF at {}", elf.display());
         assert!(!output.stdout.is_empty(), "fixture produced no defmt bytes");
 
         (elf, output.stdout)
     }
 
-    fn build_decoder_fixture_elf(manifest_path: &Path) -> PathBuf {
+    fn build_decoder_fixture_object(manifest_path: &Path, stream_bytes: &[u8]) -> PathBuf {
         let fixture_elf = fixture_binary_path(manifest_path);
         let fixture_dir = manifest_path.parent().unwrap();
         let build_dir = fixture_dir.join("target").join("decoder-test");
-        let merged_elf = build_dir.join("defmt-fixture-with-section");
-        let defmt_path = build_dir.join("defmt.bin");
+        let object_path = build_dir.join("defmt-fixture-table.o");
 
         fs::create_dir_all(&build_dir).unwrap();
 
         let fixture_bytes = fs::read(&fixture_elf).unwrap();
-        let defmt_object = extract_defmt_object(&build_dir);
-        let defmt_bytes = fs::read(&defmt_object).unwrap();
-        let mut merged = Vec::new();
-        append_matching_sections(&defmt_bytes, &mut merged, |name| {
-            name.starts_with(".defmt.prim.")
-        });
-        append_matching_sections(&fixture_bytes, &mut merged, |name| {
-            name.starts_with(".defmt.info.")
-        });
-        append_matching_sections(&defmt_bytes, &mut merged, |name| {
-            name.starts_with(".defmt.") && !name.starts_with(".defmt.prim.") && name != ".defmt.end"
-        });
-        append_matching_sections(&defmt_bytes, &mut merged, |name| name == ".defmt.end");
-        append_matching_sections(&fixture_bytes, &mut merged, |name| name == ".defmt.end");
-        fs::write(&defmt_path, merged).unwrap();
-        fs::copy(&fixture_elf, &merged_elf).unwrap();
+        let fixture = object::File::parse(&*fixture_bytes).unwrap();
+        let symbols = collect_fixture_symbols(&fixture, decode_fixture_frame_index(stream_bytes));
+        let section_size = symbols
+            .iter()
+            .map(|symbol| symbol.value + symbol.size.max(1))
+            .max()
+            .unwrap() as usize;
 
-        let status = Command::new("objcopy")
-            .args(["--add-section", ".defmt=target/decoder-test/defmt.bin"])
-            .args(["--set-section-flags", ".defmt=alloc,readonly,contents"])
-            .arg("target/decoder-test/defmt-fixture-with-section")
-            .current_dir(fixture_dir)
-            .status()
-            .unwrap();
-        assert!(status.success(), "objcopy failed to add .defmt section");
+        let mut object =
+            WriteObject::new(BinaryFormat::Elf, Architecture::X86_64, Endianness::Little);
+        let section = object.add_section(Vec::new(), b".defmt".to_vec(), SectionKind::ReadOnlyData);
+        object.append_section_data(section, &vec![0; section_size], 1);
 
-        merged_elf
+        for symbol in symbols {
+            object.add_symbol(Symbol {
+                name: symbol.name.into_bytes(),
+                value: symbol.value,
+                size: symbol.size.max(1),
+                kind: SymbolKind::Data,
+                scope: SymbolScope::Linkage,
+                weak: false,
+                section: SymbolSection::Section(section),
+                flags: SymbolFlags::None,
+            });
+        }
+
+        fs::write(&object_path, object.write().unwrap()).unwrap();
+        object_path
     }
 
     fn run_fixture_command(manifest_path: &Path, args: [&str; 2]) {
@@ -277,64 +298,88 @@ mod tests {
         env::var("CARGO").unwrap_or_else(|_| String::from("cargo"))
     }
 
-    fn extract_defmt_object(build_dir: &Path) -> PathBuf {
-        let defmt_rlib = build_dir
-            .parent()
-            .unwrap()
-            .join("x86_64-unknown-linux-gnu")
-            .join("debug")
-            .join("deps");
-        let defmt_rlib = fs::read_dir(defmt_rlib)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with("libdefmt-") && name.ends_with(".rlib"))
-                    .unwrap_or(false)
-            })
-            .unwrap();
-        let member_name = String::from_utf8(
-            Command::new("ar")
-                .args(["t", defmt_rlib.to_str().unwrap()])
-                .output()
-                .unwrap()
-                .stdout,
-        )
-        .unwrap()
-        .lines()
-        .nth(1)
-        .unwrap()
-        .to_owned();
-        let object_path = build_dir.join("defmt-object.o");
-        let object_bytes = Command::new("ar")
-            .args(["p", defmt_rlib.to_str().unwrap(), &member_name])
-            .output()
-            .unwrap()
-            .stdout;
-        fs::write(&object_path, object_bytes).unwrap();
+    fn collect_fixture_symbols(file: &object::File<'_>, frame_index: u64) -> Vec<FixtureSymbol> {
+        file.symbols()
+            .filter_map(|symbol| {
+                let name = symbol.name().ok()?;
+                if !is_required_fixture_symbol(name) {
+                    return None;
+                }
 
-        object_path
+                Some(FixtureSymbol {
+                    name: name.to_owned(),
+                    value: if name.contains("\"tag\":\"defmt_info\"") {
+                        frame_index
+                    } else {
+                        symbol.address()
+                    },
+                    size: symbol.size(),
+                })
+            })
+            .collect()
     }
 
-    fn append_matching_sections(
-        object_bytes: &[u8],
-        out: &mut Vec<u8>,
-        mut predicate: impl FnMut(&str) -> bool,
-    ) {
-        let file = object::File::parse(object_bytes).unwrap();
+    fn is_required_fixture_symbol(name: &str) -> bool {
+        name.contains("\"tag\":\"defmt_info\"")
+            || name.starts_with("_defmt_encoding_ = ")
+            || name.starts_with("_defmt_version_ = ")
+    }
 
-        for section in file.sections() {
-            let Ok(name) = section.name() else {
-                continue;
-            };
-            if !predicate(name) {
+    fn decode_fixture_frame_index(stream_bytes: &[u8]) -> u64 {
+        let frame = decode_rzcobs_frame(stream_bytes);
+        u16::from_le_bytes([frame[0], frame[1]]) as u64
+    }
+
+    fn decode_rzcobs_frame(stream_bytes: &[u8]) -> Vec<u8> {
+        let start = stream_bytes
+            .iter()
+            .position(|byte| *byte != 0)
+            .expect("fixture stream missing frame data");
+        let end = stream_bytes[start..]
+            .iter()
+            .position(|byte| *byte == 0)
+            .map(|offset| start + offset)
+            .expect("fixture stream missing frame terminator");
+
+        let mut decoded = Vec::new();
+        let mut encoded = stream_bytes[start..end].iter().rev().copied();
+
+        while let Some(byte) = encoded.next() {
+            if byte == 0 {
+                panic!("fixture rzCOBS frame contained an unexpected zero byte");
+            }
+
+            if byte <= 0x7f {
+                for bit in 0..7 {
+                    if byte & (1 << (6 - bit)) == 0 {
+                        decoded.push(encoded.next().expect("fixture rzCOBS frame truncated"));
+                    } else {
+                        decoded.push(0);
+                    }
+                }
                 continue;
             }
 
-            out.extend(section.data().unwrap());
+            if byte < 0xff {
+                let count = (byte & 0x7f) + 7;
+                decoded.push(0);
+                for _ in 0..count {
+                    decoded.push(encoded.next().expect("fixture rzCOBS frame truncated"));
+                }
+                continue;
+            }
+
+            for _ in 0..134 {
+                decoded.push(encoded.next().expect("fixture rzCOBS frame truncated"));
+            }
         }
+
+        decoded.reverse();
+        assert!(
+            decoded.len() >= 2,
+            "fixture rzCOBS frame too short to contain a defmt index"
+        );
+        decoded
     }
 
     fn fixture_manifest_path() -> PathBuf {
@@ -353,5 +398,11 @@ mod tests {
             .join("x86_64-unknown-linux-gnu")
             .join("debug")
             .join("defmt-fixture")
+    }
+
+    struct FixtureSymbol {
+        name: String,
+        value: u64,
+        size: u64,
     }
 }
