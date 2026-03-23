@@ -18,11 +18,12 @@
   - tee encoded `defmt` bytes to RTT and to the shared byte ring
   - drain ring bytes into MQTT log-chunk messages
 - `src/bin/test_stand_controller/mqtt/queue.rs`
-  Shared outbound queue for MQTT publications. Now includes `DefmtLog` messages with a fixed
-  payload chunk size.
+  MQTT queue layer. Operational telemetry/status messages and `defmt` log chunks use separate
+  bounded queues so diagnostic traffic cannot consume the capacity reserved for normal publishes.
 - `src/bin/test_stand_controller/mqtt/client.rs`
-  MQTT session loop. Publishes raw `defmt` log chunks to `log/defmt` as non-retained QoS 0
-  messages.
+  MQTT session loop. Uses explicit priority order for session work:
+  inbound MQTT traffic first, operational outbound messages second, and raw `defmt` log chunks on
+  `log/defmt` last.
 - `src/bin/test_stand_controller/mqtt/topics.rs`
   Topic constants, including `TOPIC_LOG_DEFMT`.
 - `tools/blackbox-decoder/`
@@ -74,6 +75,7 @@ Host-side automated verification covers:
 
 - shared byte-ring behavior
 - MQTT event payload forwarding
+- decoder handling for split payloads and malformed-frame recovery
 - native build/test/lint of the decoder tool
 
 Firmware-side automated verification covers:

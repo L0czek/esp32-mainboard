@@ -349,19 +349,13 @@ Expected: only planned files changed.
 These items were identified during post-implementation review and are intentionally tracked here so
 they are not lost.
 
-- [ ] **TODO: Isolate `defmt` log traffic from operational MQTT traffic**
+- [x] **TODO: Isolate `defmt` log traffic from operational MQTT traffic**
 
-Current risk:
-- `DefmtLog` shares the same bounded outbound queue as telemetry and status messages.
-- When MQTT is disconnected or reconnecting, log traffic can fill the queue before normal
-  publications are drained.
-- Queue-full warnings from normal publish paths still emit `defmt` logs, which can amplify
-  pressure.
-
-Follow-up options:
-- move `DefmtLog` onto a separate queue
-- gate log draining on confirmed MQTT-session availability
-- or introduce explicit prioritization / drop policy so logs cannot starve operational messages
+Implemented:
+- `defmt` log chunks now use a dedicated bounded queue separate from telemetry/status messages.
+- the MQTT session loop now prioritizes work as inbound MQTT traffic, then operational
+  telemetry/status, then `defmt` logs.
+- `defmt` logs stay best effort and cannot consume the capacity reserved for normal publications.
 
 - [ ] **TODO: Add MQTT authentication support to the host decoder**
 
@@ -378,8 +372,8 @@ Required follow-up:
 Current gap:
 - tests cover ring FIFO behavior and MQTT payload forwarding only
 - they do not instantiate the real host decoder with matching ELF metadata
-- they do not prove split-payload `defmt` decode, malformed-frame recovery, or live
-  firmware-bytes-to-host-decoder compatibility
+- split-payload handling and malformed-frame recovery are now covered by host decoder unit tests,
+  but live firmware-bytes-to-host-decoder compatibility is still not proven
 
 Required follow-up:
 - add the strongest broker-free integration test practical with real encoded `defmt` bytes plus a

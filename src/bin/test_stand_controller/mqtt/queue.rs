@@ -13,8 +13,11 @@ use crate::servo::state::ServoStatus;
 
 pub const OUTBOUND_QUEUE_CAPACITY: usize = 256;
 pub const DEFMT_LOG_CHUNK_SIZE: usize = 128;
+pub const DEFMT_LOG_QUEUE_CAPACITY: usize = 32;
 
 static OUTBOUND_QUEUE: Channel<CriticalSectionRawMutex, OutboundMessage, OUTBOUND_QUEUE_CAPACITY> =
+    Channel::new();
+static DEFMT_LOG_QUEUE: Channel<CriticalSectionRawMutex, DefmtLogChunk, DEFMT_LOG_QUEUE_CAPACITY> =
     Channel::new();
 
 #[derive(Debug, Clone)]
@@ -29,7 +32,6 @@ pub enum OutboundMessage {
     CommandStatus(CommandStatusPacket),
     CpuIdleMetric(CpuIdleMetricPacket),
     WifiRssiMetric(WifiRssiMetricPacket),
-    DefmtLog(DefmtLogChunk),
 }
 
 impl OutboundMessage {
@@ -45,7 +47,6 @@ impl OutboundMessage {
             Self::CommandStatus(_) => "CommandStatus",
             Self::CpuIdleMetric(_) => "CpuIdleMetric",
             Self::WifiRssiMetric(_) => "WifiRssiMetric",
-            Self::DefmtLog(_) => "DefmtLog",
         }
     }
 }
@@ -204,7 +205,10 @@ pub fn publish_wifi_rssi_metric(rssi_dbm: i32) -> Result<(), PublishError> {
 
 pub fn publish_defmt_log_chunk(bytes: &[u8]) -> Result<(), PublishError> {
     let chunk = DefmtLogChunk::from_slice(bytes)?;
-    enqueue(OutboundMessage::DefmtLog(chunk))
+    match DEFMT_LOG_QUEUE.try_send(chunk) {
+        Ok(()) => Ok(()),
+        Err(TrySendError::Full(_)) => Err(PublishError::QueueFull),
+    }
 }
 
 pub fn publish_command_log(msg: &str) {
@@ -218,8 +222,13 @@ pub(crate) async fn receive_outbound_message() -> OutboundMessage {
     OUTBOUND_QUEUE.receive().await
 }
 
+pub(crate) async fn receive_defmt_log_chunk() -> DefmtLogChunk {
+    DEFMT_LOG_QUEUE.receive().await
+}
+
 pub(crate) fn clear_outbound_queue() {
     OUTBOUND_QUEUE.clear();
+    DEFMT_LOG_QUEUE.clear();
 }
 
 fn enqueue(message: OutboundMessage) -> Result<(), PublishError> {
