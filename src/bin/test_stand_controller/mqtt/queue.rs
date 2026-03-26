@@ -12,8 +12,12 @@ use crate::mqtt::sensors::temp::TempPacket;
 use crate::servo::state::ServoStatus;
 
 pub const OUTBOUND_QUEUE_CAPACITY: usize = 256;
+pub const DEFMT_LOG_CHUNK_SIZE: usize = 128;
+pub const DEFMT_LOG_QUEUE_CAPACITY: usize = 32;
 
 static OUTBOUND_QUEUE: Channel<CriticalSectionRawMutex, OutboundMessage, OUTBOUND_QUEUE_CAPACITY> =
+    Channel::new();
+static DEFMT_LOG_QUEUE: Channel<CriticalSectionRawMutex, DefmtLogChunk, DEFMT_LOG_QUEUE_CAPACITY> =
     Channel::new();
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,32 @@ impl OutboundMessage {
 #[derive(Debug, Clone, Copy, defmt::Format)]
 pub enum PublishError {
     QueueFull,
+    PayloadTooLarge,
+}
+
+#[derive(Debug, Clone)]
+pub struct DefmtLogChunk {
+    len: usize,
+    bytes: [u8; DEFMT_LOG_CHUNK_SIZE],
+}
+
+impl DefmtLogChunk {
+    fn from_slice(bytes: &[u8]) -> Result<Self, PublishError> {
+        if bytes.len() > DEFMT_LOG_CHUNK_SIZE {
+            return Err(PublishError::PayloadTooLarge);
+        }
+
+        let mut chunk = Self {
+            len: bytes.len(),
+            bytes: [0; DEFMT_LOG_CHUNK_SIZE],
+        };
+        chunk.bytes[..bytes.len()].copy_from_slice(bytes);
+        Ok(chunk)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +203,14 @@ pub fn publish_wifi_rssi_metric(rssi_dbm: i32) -> Result<(), PublishError> {
     ))
 }
 
+pub fn publish_defmt_log_chunk(bytes: &[u8]) -> Result<(), PublishError> {
+    let chunk = DefmtLogChunk::from_slice(bytes)?;
+    match DEFMT_LOG_QUEUE.try_send(chunk) {
+        Ok(()) => Ok(()),
+        Err(TrySendError::Full(_)) => Err(PublishError::QueueFull),
+    }
+}
+
 pub fn publish_command_log(msg: &str) {
     match CommandStatusPacket::from_str(msg) {
         Ok(packet) => publish_command_status(packet),
@@ -184,8 +222,13 @@ pub(crate) async fn receive_outbound_message() -> OutboundMessage {
     OUTBOUND_QUEUE.receive().await
 }
 
+pub(crate) async fn receive_defmt_log_chunk() -> DefmtLogChunk {
+    DEFMT_LOG_QUEUE.receive().await
+}
+
 pub(crate) fn clear_outbound_queue() {
     OUTBOUND_QUEUE.clear();
+    DEFMT_LOG_QUEUE.clear();
 }
 
 fn enqueue(message: OutboundMessage) -> Result<(), PublishError> {
@@ -201,6 +244,9 @@ fn enqueue_or_log(message: OutboundMessage) {
         Ok(()) => (), //OK
         Err(PublishError::QueueFull) => {
             warn!("Failed to publish {}: queue full", variant);
+        }
+        Err(PublishError::PayloadTooLarge) => {
+            warn!("Failed to publish {}: payload too large", variant);
         }
     }
 }

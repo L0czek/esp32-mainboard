@@ -1,0 +1,14 @@
+[package]
+name = "defmt-mqtt-decoder"
+version = "0.1.0"
+edition = "2024"
+description = "Decode defmt logs transported over MQTT"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.0", features = ["derive", "env"] }
+defmt-decoder = "1.1.0"
+rumqttc = { version = "0.25.1", default-features = false }
+
+[dev-dependencies]
+object = { version = "=0.36.7", features = ["write"] }

@@ -1,5 +1,5 @@
 use defmt::{debug, error, info, warn};
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select3, Either3};
 use embassy_net::tcp::TcpSocket;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
@@ -26,8 +26,9 @@ use crate::mqtt::sensors::status::StateStatus;
 use crate::mqtt::sensors::EncodableEnum;
 use crate::mqtt::sensors::EncodablePayload;
 use crate::mqtt::topics::{
-    self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_METRIC_CPU_IDLE,
-    TOPIC_METRIC_WIFI_RSSI, TOPIC_STATUS_CMD, TOPIC_STATUS_SERVO, TOPIC_STATUS_STATE,
+    self, TopicBuildError, COMMAND_TOPICS, TEMP_TOPIC_BUFFER_LEN, TOPIC_LOG_DEFMT,
+    TOPIC_METRIC_CPU_IDLE, TOPIC_METRIC_WIFI_RSSI, TOPIC_STATUS_CMD, TOPIC_STATUS_SERVO,
+    TOPIC_STATUS_STATE,
 };
 use crate::servo::command::ServoCommand;
 use mainboard::wifi::WifiResourceSta;
@@ -241,8 +242,18 @@ async fn run_session_loop(
     let mut temp_topic_buffer = [0u8; TEMP_TOPIC_BUFFER_LEN];
 
     loop {
-        match select(client.poll_header(), queue::receive_outbound_message()).await {
-            Either::First(header_result) => {
+        // `embassy_futures::select3` polls futures from left to right, so this preserves
+        // precedence as: inbound MQTT traffic -> operational outbound messages -> defmt logs.
+        // Using the biased select directly avoids starving inbound traffic when telemetry stays
+        // continuously backlogged.
+        match select3(
+            client.poll_header(),
+            queue::receive_outbound_message(),
+            queue::receive_defmt_log_chunk(),
+        )
+        .await
+        {
+            Either3::First(header_result) => {
                 let header = header_result.map_err(|_| AppMqttError::MqttError)?;
                 let event = client
                     .poll_body(header)
@@ -250,7 +261,7 @@ async fn run_session_loop(
                     .map_err(|_| AppMqttError::MqttError)?;
                 handle_incoming_event(event, &mut dispatcher);
             }
-            Either::Second(message) => {
+            Either3::Second(message) => {
                 publish_outbound_message(
                     client,
                     message,
@@ -259,6 +270,7 @@ async fn run_session_loop(
                 )
                 .await?;
             }
+            Either3::Third(chunk) => publish_defmt_log_chunk(client, &chunk).await?,
         }
     }
 }
@@ -306,6 +318,26 @@ async fn publish_outbound_message(
 
     client
         .publish(&options, encoded.payload.into())
+        .await
+        .map_err(|_| AppMqttError::MqttError)?;
+
+    Ok(())
+}
+
+async fn publish_defmt_log_chunk(
+    client: &mut AppClient<'_, '_>,
+    chunk: &queue::DefmtLogChunk,
+) -> Result<(), AppMqttError> {
+    let topic =
+        topics::make_topic_name(TOPIC_LOG_DEFMT).ok_or(AppMqttError::StringConversionError)?;
+    let options = PublicationOptions {
+        retain: false,
+        topic,
+        qos: QoS::AtMostOnce,
+    };
+
+    client
+        .publish(&options, chunk.as_bytes().into())
         .await
         .map_err(|_| AppMqttError::MqttError)?;
 

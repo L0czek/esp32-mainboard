@@ -9,6 +9,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 - `scripts/` — helper scripts for common local workflows.
 - `src/` — library and binary sources:
   - `board.rs` — board-specific wiring and helper functions.
+  - `defmt_ring.rs` — shared fixed-capacity byte ring used by the test-stand `defmt` MQTT log path.
   - `power/` — power controller driver and helpers.
   - `tasks/` — async tasks used by binaries (ADC, UART, digital IO, etc.).
   - `idle_monitor.rs` — shared CPU idle/busy monitoring hook + sampling helpers for ESP RTOS.
@@ -17,8 +18,13 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
     - `www_test/` — web server + diagnostic target (primary example).
     - `empty/` — minimal/empty binary.
     - `test_stand_controller/` — test stand firmware (power, WiFi, MQTT command + sensor pipeline).
+      - `defmt_logger.rs` — binary-local `defmt` tee logger that writes encoded frames to RTT and
+        into an MQTT-drained byte ring.
     - `tmp107_sensor_test/` — standalone TMP107 chain test (discover, read, log, LED blink loop).
     - `blackbox_uart_counter/` — UART1 (D4 TX) counter generator for blackbox receiver debugging.
+- `tools/` — host-side utilities:
+  - `blackbox-decoder/` — SD card decoder/formatter for the UART blackbox stream.
+  - `defmt-mqtt-decoder/` — subscribes to MQTT `defmt` bytes and formats them with the matching ELF.
 
 ## What this repo provides
 
@@ -105,6 +111,33 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
 - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
   direction control via D0 wired to UART DTR.
+- `test_stand_controller` also exports encoded `defmt` log bytes over MQTT:
+  - topic: `log/defmt`
+  - payload: raw encoded `defmt` stream bytes
+  - transport: same encoded bytes are tee'd to RTT and to MQTT
+
+### Decoding `defmt` MQTT Logs
+
+The host decoder lives in `tools/defmt-mqtt-decoder/` and requires the same ELF that produced the
+running firmware image.
+
+Run it from the tool directory so its local Cargo target override applies:
+
+```sh
+cd tools/defmt-mqtt-decoder
+env RUSTFLAGS='' cargo run -- \
+  --elf /path/to/target/riscv32imac-unknown-none-elf/debug/test_stand_controller \
+  --host broker.local \
+  --port 1883 \
+  --username "$MQTT_USER" \
+  --password "$MQTT_PASSWORD" \
+  --topic log/defmt
+```
+
+The decoder also reads broker credentials from `MQTT_USER` and `MQTT_PASSWORD` if you omit the
+flags.
+
+The decoder fails fast if the ELF does not match the incoming `defmt` stream metadata.
 
 ## CPU Idle Monitoring
 

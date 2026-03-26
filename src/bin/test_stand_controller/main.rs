@@ -1,4 +1,3 @@
-#![feature(impl_trait_in_assoc_type)]
 #![no_std]
 #![no_main]
 #![deny(
@@ -10,6 +9,7 @@
 mod blackbox;
 mod camera_shutter;
 mod config;
+mod defmt_logger;
 mod mqtt;
 mod sensor_collection;
 mod sequencer;
@@ -51,8 +51,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
-    // Initialize RTT for logging
-    rtt_target::rtt_init_defmt!();
+    defmt_logger::init();
 
     // Configure and initialize hardware
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -135,6 +134,10 @@ async fn main(spawner: Spawner) {
         .spawn(mqtt::mqtt_task(wifi_resources, &SHUTDOWN_SIGNAL))
         .expect("Failed to spawn mqtt_task");
     info!("MQTT task spawned");
+    spawner
+        .spawn(defmt_logger::drain_task())
+        .expect("Failed to spawn defmt_logger::drain_task");
+    info!("Defmt MQTT drain task spawned");
 
     spawner
         .spawn(wifi_rssi_metric_task())
