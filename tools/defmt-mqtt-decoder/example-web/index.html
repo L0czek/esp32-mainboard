@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>defmt MQTT WASM Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">Rust + WASM + plain JS</p>
+        <h1>defmt MQTT decoder demo</h1>
+        <p class="lede">
+          Load a firmware ELF, paste raw MQTT payload bytes, and decode `defmt` log lines directly
+          in the browser.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>1. Load the decoder package</h2>
+        <p id="wasm-status" class="status">Waiting for `./pkg/defmt_mqtt_decoder.js`...</p>
+      </section>
+
+      <section class="panel">
+        <h2>2. Pick the firmware ELF</h2>
+        <label class="field">
+          <span>ELF file</span>
+          <input id="elf-file" type="file" />
+        </label>
+        <button id="create-decoder" type="button">Create decoder</button>
+        <p id="decoder-status" class="status">No decoder loaded yet.</p>
+      </section>
+
+      <section class="panel">
+        <h2>3. Paste MQTT payloads</h2>
+        <p class="hint">
+          One MQTT payload per line. Use hex bytes with or without spaces, for example:
+          <code>01 02 03 00</code>
+        </p>
+        <label class="field">
+          <span>Payload chunks</span>
+          <textarea
+            id="payloads"
+            rows="10"
+            spellcheck="false"
+            placeholder="54 49 4d 45 53 59 4e"
+          ></textarea>
+        </label>
+        <div class="actions">
+          <button id="decode" type="button">Decode chunks</button>
+          <button id="reset-output" type="button" class="ghost">Clear output</button>
+        </div>
+      </section>
+
+      <section class="panel output-grid">
+        <div>
+          <h2>Log lines</h2>
+          <pre id="log-output" class="output">Decoded lines will appear here.</pre>
+        </div>
+        <div>
+          <h2>Warnings</h2>
+          <pre id="warning-output" class="output">Recoverable warnings will appear here.</pre>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

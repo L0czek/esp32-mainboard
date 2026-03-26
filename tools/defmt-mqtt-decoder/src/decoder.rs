@@ -1,11 +1,14 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
-use std::io::{self, Write};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
 use defmt_decoder::{DecodeError, StreamDecoder, Table};
 
-use crate::mqtt::PayloadHandler;
+const MALFORMED_FRAME_WARNING: &str = "warning: malformed frame skipped";
 
 trait DecoderBackend {
     fn received(&mut self, bytes: &[u8]);
@@ -30,60 +33,94 @@ impl DecoderBackend for LiveDecoderBackend {
     }
 }
 
+/// Output produced after feeding one MQTT payload into the decoder.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DecodedChunk {
+    /// Formatted log lines that became complete after this payload.
+    pub lines: Vec<String>,
+    /// Recoverable decoder warnings emitted while skipping malformed frames.
+    pub warnings: Vec<String>,
+}
+
+impl DecodedChunk {
+    /// Returns whether this payload completed no lines and emitted no warnings.
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty() && self.warnings.is_empty()
+    }
+}
+
+/// Incremental `defmt` stream decoder for raw MQTT payload bytes.
 pub struct DefmtStreamDecoder {
     can_recover: bool,
     stream: Box<dyn DecoderBackend + Send + Sync + 'static>,
 }
 
 impl DefmtStreamDecoder {
+    /// Builds a decoder from firmware ELF bytes.
+    ///
+    /// Args:
+    /// - `elf`: Full firmware ELF contents containing the `.defmt` section.
+    ///
+    /// Returns:
+    /// - A decoder that can accept MQTT payload chunks in stream order.
+    ///
+    /// Errors:
+    /// - Returns an error when the ELF cannot be parsed or does not contain `.defmt` metadata.
+    pub fn from_elf_bytes(elf: &[u8]) -> Result<Self> {
+        let table = Table::parse(elf)?.ok_or_else(|| anyhow!(".defmt data not found"))?;
+        Ok(Self::from_table(table))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Builds a decoder from a firmware ELF on disk.
+    ///
+    /// Args:
+    /// - `elf`: Path to the firmware ELF that matches the incoming `defmt` stream.
+    ///
+    /// Errors:
+    /// - Returns an error when the file cannot be read or does not contain `.defmt` metadata.
     pub fn from_elf(elf: &Path) -> Result<Self> {
         let bytes = fs::read(elf).with_context(|| format!("failed to read {}", elf.display()))?;
-        let table = Table::parse(&bytes)?.ok_or_else(|| anyhow!(".defmt data not found"))?;
+        Self::from_elf_bytes(&bytes)
+    }
+
+    /// Feeds one raw MQTT payload chunk into the decoder.
+    ///
+    /// Args:
+    /// - `bytes`: Raw `defmt` stream bytes taken from one MQTT publish payload.
+    ///
+    /// Returns:
+    /// - The decoded lines and recoverable warnings produced by this chunk.
+    ///
+    /// Errors:
+    /// - Returns an error when the stream is malformed and the encoding cannot recover.
+    pub fn decode_chunk(&mut self, bytes: &[u8]) -> Result<DecodedChunk> {
+        let mut output = DecodedChunk::default();
+        self.stream.received(bytes);
+
+        loop {
+            match self.stream.decode_frame() {
+                Ok(Some(frame)) => output.lines.push(frame),
+                Ok(None) => return Ok(output),
+                Err(DecodeError::Malformed) if self.can_recover => {
+                    output.warnings.push(String::from(MALFORMED_FRAME_WARNING));
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    fn from_table(table: Table) -> Self {
         let can_recover = table.encoding().can_recover();
         let leaked = Box::leak(Box::new(table));
         let stream = Box::new(LiveDecoderBackend {
             stream: leaked.new_stream_decoder(),
         });
 
-        Ok(Self {
+        Self {
             can_recover,
             stream,
-        })
-    }
-
-    pub fn process_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        let mut stdout = io::stdout();
-        let mut stderr = io::stderr();
-        self.process_bytes_with(bytes, &mut stdout, &mut stderr)
-    }
-
-    fn process_bytes_with(
-        &mut self,
-        bytes: &[u8],
-        stdout: &mut impl Write,
-        stderr: &mut impl Write,
-    ) -> Result<()> {
-        self.stream.received(bytes);
-
-        loop {
-            match self.stream.decode_frame() {
-                Ok(Some(frame)) => writeln!(stdout, "{frame}")?,
-                Ok(None) => break,
-                Err(DecodeError::Malformed) if self.can_recover => {
-                    writeln!(stderr, "warning: malformed frame skipped")?;
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            }
         }
-
-        Ok(())
-    }
-}
-
-impl PayloadHandler for DefmtStreamDecoder {
-    fn handle_payload(&mut self, payload: &[u8]) -> Result<()> {
-        self.process_bytes(payload)
     }
 }
 
@@ -104,23 +141,19 @@ mod tests {
     use super::*;
 
     struct FakeDecoderBackend {
-        received_payloads: Vec<Vec<u8>>,
         frames: VecDeque<Result<Option<String>, DecodeError>>,
     }
 
     impl FakeDecoderBackend {
         fn new(frames: impl IntoIterator<Item = Result<Option<String>, DecodeError>>) -> Self {
             Self {
-                received_payloads: Vec::new(),
                 frames: frames.into_iter().collect(),
             }
         }
     }
 
     impl DecoderBackend for FakeDecoderBackend {
-        fn received(&mut self, bytes: &[u8]) {
-            self.received_payloads.push(bytes.to_vec());
-        }
+        fn received(&mut self, _bytes: &[u8]) {}
 
         fn decode_frame(&mut self) -> Result<Option<String>, DecodeError> {
             self.frames.pop_front().unwrap_or(Ok(None))
@@ -135,18 +168,13 @@ mod tests {
             can_recover: true,
             stream: Box::new(backend),
         };
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
 
-        decoder
-            .process_bytes_with(&[1, 2], &mut stdout, &mut stderr)
-            .unwrap();
-        decoder
-            .process_bytes_with(&[3, 4], &mut stdout, &mut stderr)
-            .unwrap();
+        let first = decoder.decode_chunk(&[1, 2]).unwrap();
+        let second = decoder.decode_chunk(&[3, 4]).unwrap();
 
-        assert_eq!(String::from_utf8(stdout).unwrap(), "frame 1\n");
-        assert!(stderr.is_empty());
+        assert!(first.is_empty());
+        assert_eq!(second.lines, vec![String::from("frame 1")]);
+        assert!(second.warnings.is_empty());
     }
 
     #[test]
@@ -160,18 +188,11 @@ mod tests {
             can_recover: true,
             stream: Box::new(backend),
         };
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
 
-        decoder
-            .process_bytes_with(&[9, 9], &mut stdout, &mut stderr)
-            .unwrap();
+        let chunk = decoder.decode_chunk(&[9, 9]).unwrap();
 
-        assert_eq!(String::from_utf8(stdout).unwrap(), "frame 2\n");
-        assert_eq!(
-            String::from_utf8(stderr).unwrap(),
-            "warning: malformed frame skipped\n"
-        );
+        assert_eq!(chunk.lines, vec![String::from("frame 2")]);
+        assert_eq!(chunk.warnings, vec![String::from(MALFORMED_FRAME_WARNING)]);
     }
 
     #[test]
@@ -182,46 +203,44 @@ mod tests {
             stream: Box::new(backend),
         };
 
-        let error = decoder
-            .process_bytes_with(&[7], &mut Vec::new(), &mut Vec::new())
-            .unwrap_err();
-
+        let error = decoder.decode_chunk(&[7]).unwrap_err();
         let decode_error = error.downcast_ref::<DecodeError>();
+
         assert!(matches!(decode_error, Some(DecodeError::Malformed)));
     }
 
     #[test]
     fn accepts_real_fixture_stream_from_matching_elf_without_decode_errors() {
         let (elf, bytes) = build_fixture_stream();
-        let mut decoder = DefmtStreamDecoder::from_elf(&elf).unwrap();
+        let elf_bytes = fs::read(&elf).unwrap();
+        let mut decoder = DefmtStreamDecoder::from_elf_bytes(&elf_bytes).unwrap();
         let split = bytes.len() / 2;
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
 
-        decoder
-            .process_bytes_with(&bytes[..split], &mut stdout, &mut stderr)
-            .unwrap();
-        decoder
-            .process_bytes_with(&bytes[split..], &mut stdout, &mut stderr)
-            .unwrap();
+        let first = decoder.decode_chunk(&bytes[..split]).unwrap();
+        let second = decoder.decode_chunk(&bytes[split..]).unwrap();
 
-        let stdout = String::from_utf8(stdout).unwrap();
-        let stderr = String::from_utf8(stderr).unwrap();
+        let lines = first
+            .lines
+            .into_iter()
+            .chain(second.lines)
+            .collect::<Vec<_>>();
+        let rendered = lines.join("\n");
 
         assert!(
-            stdout.contains("fixture=42"),
-            "decoded output missing fixture payload: {stdout:?}"
+            rendered.contains("fixture=42"),
+            "decoded output missing fixture payload: {rendered:?}"
         );
         assert!(
-            stdout.contains("INFO"),
-            "decoded output missing log level: {stdout:?}"
+            rendered.contains("INFO"),
+            "decoded output missing log level: {rendered:?}"
         );
         assert_eq!(
-            stdout.lines().count(),
+            lines.len(),
             1,
-            "expected one decoded log line, got: {stdout:?}"
+            "expected one decoded log line, got: {lines:?}"
         );
-        assert!(stderr.is_empty(), "unexpected decoder warnings: {stderr:?}");
+        assert!(first.warnings.is_empty());
+        assert!(second.warnings.is_empty());
     }
 
     fn build_fixture_stream() -> (PathBuf, Vec<u8>) {

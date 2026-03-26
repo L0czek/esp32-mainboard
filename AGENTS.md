@@ -50,6 +50,29 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 **Decode:** `RUSTFLAGS="" cargo run -- decode [--separator <hex>] <path>`
 **Format:** `RUSTFLAGS="" cargo run -- format [--yes] <device-or-file>`
 
+### `tools/defmt-mqtt-decoder/` — Defmt MQTT Decoder
+Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two modes:
+- **CLI mode:** subscribes to MQTT `defmt` bytes and prints decoded log lines using the matching
+  ELF.
+- **WASM mode:** exposes a thin `wasm-bindgen` API for frontend code that already has MQTT payload
+  bytes and wants decoded log lines without speaking MQTT directly.
+
+**Files:**
+- `src/decoder.rs`: transport-agnostic incremental decoder core. Accepts raw MQTT payload bytes
+  and returns completed log lines plus recoverable warnings.
+- `src/mqtt.rs`: host-only MQTT subscribe loop and payload forwarding.
+- `src/main.rs`: CLI entry point that wires MQTT subscription into the shared decoder core.
+- `src/wasm.rs`: WASM-facing `DefmtDecoder` wrapper for frontend integration.
+- `example-web/`: tiny static website showing how browser JavaScript imports the generated WASM
+  package and feeds raw MQTT payload bytes into the decoder.
+- `tests/stream_decode.rs`: host-side MQTT event forwarding tests.
+- `tests/defmt_ring.rs`: shared byte-ring regression tests for the firmware log transport.
+
+**Build CLI:** `cd tools/defmt-mqtt-decoder && RUSTFLAGS="" cargo run -- --elf <firmware.elf> ...`
+**Test/Lint:** `RUSTFLAGS="" cargo test && RUSTFLAGS="" cargo clippy --all-targets -- -D warnings`
+**Build WASM:** `RUSTFLAGS="" cargo build --target wasm32-unknown-unknown --release --lib`
+**Browser demo:** `RUSTFLAGS="" wasm-pack build --target web --out-dir example-web/pkg && cd example-web && python3 -m http.server 8080`
+
 ## Build, Test, and Development Commands
 - `cargo check --bin test_stand_controller`: fast compile check with auto-loaded compile-time env.
 - `cargo build --release --bin test_stand_controller`: optimized firmware build with auto-loaded compile-time env.
