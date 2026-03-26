@@ -116,6 +116,14 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   - topic: `log/defmt`
   - payload: raw encoded `defmt` stream bytes
   - transport: same encoded bytes are tee'd to RTT and to MQTT
+- Publish the matching ELF for browser-based decoders with:
+```sh
+scripts/publish_test_stand_elf.sh
+```
+- The script publishes the ELF as retained raw bytes on
+  `shared/firmware/test_stand_controller/elf`
+- Override the defaults with `TEST_STAND_ELF`, `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER`,
+  `MQTT_PASSWORD`, or `MQTT_TOPIC`
 
 ### Decoding `defmt` MQTT Logs
 
@@ -125,6 +133,12 @@ The decoder lives in `tools/defmt-mqtt-decoder/` and now supports two consumptio
 - a WASM-facing library API for frontend code that already has the MQTT payload bytes
 
 Both modes require the same ELF that produced the running firmware image.
+
+For browser/frontends that decode `log/defmt` directly, publish that same ELF into MQTT first:
+
+```sh
+MQTT_HOST=broker.local scripts/publish_test_stand_elf.sh
+```
 
 Run it from the tool directory so its local Cargo target override applies:
 

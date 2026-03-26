@@ -3,6 +3,8 @@
 ## Project Structure & Module Organization
 Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107_sensor_test/`.
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
+- `scripts/publish_test_stand_elf.sh`: helper script to publish the matching
+  `test_stand_controller` ELF as retained MQTT state for DEFMT decoders.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/idle_monitor.rs`: shared ESP RTOS idle hook + CPU utilization window tracker.
 - `src/wifi.rs`: shared WiFi init/reconnect logic and STA RSSI watch updates.
@@ -128,6 +130,10 @@ Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two 
 - `test_stand_controller` publishes the latest STA RSSI metric via MQTT:
   - topic: `metric/wifi/rssi` (retained).
   - payload format: raw little-endian `i32` RSSI in dBm.
+- The matching controller ELF can be published for browser-side DEFMT decoding with:
+  `scripts/publish_test_stand_elf.sh`
+  - default topic: `shared/firmware/test_stand_controller/elf`
+  - payload: raw ELF bytes, retained
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
   one-shot + shutdown mode at 20Hz (50ms interval) for best accuracy per datasheet.
   Each cycle: global one-shot trigger → 20ms conversion wait → global read.
