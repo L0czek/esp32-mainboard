@@ -311,8 +311,10 @@ dependencies = [
  "anyhow",
  "clap",
  "defmt-decoder",
+ "js-sys",
  "object",
  "rumqttc",
+ "wasm-bindgen",
 ]
 
 [[package]]

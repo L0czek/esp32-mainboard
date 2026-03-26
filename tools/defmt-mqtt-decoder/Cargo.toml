@@ -4,11 +4,20 @@ version = "0.1.0"
 edition = "2024"
 description = "Decode defmt logs transported over MQTT"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 anyhow = "1.0.102"
-clap = { version = "4.6.0", features = ["derive", "env"] }
 defmt-decoder = "1.1.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+clap = { version = "4.6.0", features = ["derive", "env"] }
 rumqttc = { version = "0.25.1", default-features = false }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.91"
+wasm-bindgen = "0.2.114"
 
 [dev-dependencies]
 object = { version = "=0.36.7", features = ["write"] }

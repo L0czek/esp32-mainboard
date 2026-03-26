@@ -1,9 +1,10 @@
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
 
-use defmt_mqtt_decoder::decoder::DefmtStreamDecoder;
+use defmt_mqtt_decoder::decoder::{DecodedChunk, DefmtStreamDecoder};
 use defmt_mqtt_decoder::mqtt::{SubscriberConfig, connect, run_subscription};
 
 #[derive(Parser)]
@@ -47,7 +48,39 @@ fn main() -> Result<()> {
         request_capacity: 16,
     };
 
-    let mut decoder = DefmtStreamDecoder::from_elf(&cli.elf)?;
+    let mut decoder = ConsolePayloadHandler::new(DefmtStreamDecoder::from_elf(&cli.elf)?);
     let (mut client, mut connection) = connect(&config);
     run_subscription(&mut client, &mut connection, config.topic, &mut decoder)
+}
+
+struct ConsolePayloadHandler {
+    decoder: DefmtStreamDecoder,
+}
+
+impl ConsolePayloadHandler {
+    fn new(decoder: DefmtStreamDecoder) -> Self {
+        Self { decoder }
+    }
+
+    fn write_chunk(&mut self, chunk: DecodedChunk) -> Result<()> {
+        let mut stdout = io::stdout().lock();
+        let mut stderr = io::stderr().lock();
+
+        for line in chunk.lines {
+            writeln!(stdout, "{line}")?;
+        }
+
+        for warning in chunk.warnings {
+            writeln!(stderr, "{warning}")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl defmt_mqtt_decoder::mqtt::PayloadHandler for ConsolePayloadHandler {
+    fn handle_payload(&mut self, payload: &[u8]) -> Result<()> {
+        let chunk = self.decoder.decode_chunk(payload)?;
+        self.write_chunk(chunk)
+    }
 }

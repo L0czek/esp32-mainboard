@@ -24,7 +24,8 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
     - `blackbox_uart_counter/` — UART1 (D4 TX) counter generator for blackbox receiver debugging.
 - `tools/` — host-side utilities:
   - `blackbox-decoder/` — SD card decoder/formatter for the UART blackbox stream.
-  - `defmt-mqtt-decoder/` — subscribes to MQTT `defmt` bytes and formats them with the matching ELF.
+  - `defmt-mqtt-decoder/` — reusable `defmt` stream decoder crate with a host MQTT CLI, a
+    WASM-facing frontend API, and a minimal browser example under `example-web/`.
 
 ## What this repo provides
 
@@ -118,8 +119,12 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
 
 ### Decoding `defmt` MQTT Logs
 
-The host decoder lives in `tools/defmt-mqtt-decoder/` and requires the same ELF that produced the
-running firmware image.
+The decoder lives in `tools/defmt-mqtt-decoder/` and now supports two consumption modes:
+
+- a host CLI that subscribes to MQTT and prints decoded logs
+- a WASM-facing library API for frontend code that already has the MQTT payload bytes
+
+Both modes require the same ELF that produced the running firmware image.
 
 Run it from the tool directory so its local Cargo target override applies:
 
@@ -138,6 +143,24 @@ The decoder also reads broker credentials from `MQTT_USER` and `MQTT_PASSWORD` i
 flags.
 
 The decoder fails fast if the ELF does not match the incoming `defmt` stream metadata.
+
+#### Frontend / WASM Usage
+
+The same crate also exposes a thin `wasm-bindgen` API for frontend code:
+
+- `DefmtDecoder::new(elfBytes)` creates a decoder from firmware ELF bytes
+- `decodeChunk(mqttPayloadBytes)` feeds one raw MQTT payload and returns completed log lines
+
+Build the library artifact from the tool directory:
+
+```sh
+cd tools/defmt-mqtt-decoder
+RUSTFLAGS='' cargo build --target wasm32-unknown-unknown --release --lib
+```
+
+This produces a WebAssembly-ready library artifact while reusing the same Rust `defmt-decoder`
+core as the CLI tool. For a minimal browser integration example, see
+`tools/defmt-mqtt-decoder/example-web/README.md`.
 
 ## CPU Idle Monitoring
 
