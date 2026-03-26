@@ -1,14 +1,13 @@
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_time::{Duration, Timer};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use mainboard::defmt_ring::DefmtRing;
 use rtt_target::UpChannel;
 
 const RTT_DEFMT_BUFFER_SIZE: usize = 1024;
 const RTT_PRINT_BUFFER_SIZE: usize = 1024;
 const LOG_RING_CAPACITY: usize = 4096;
-const LOG_POLL_INTERVAL_MS: u64 = 25;
 
 static mut RTT_CHANNEL: Option<UpChannel> = None;
 static TAKEN: AtomicBool = AtomicBool::new(false);
@@ -16,6 +15,7 @@ static mut CS_RESTORE: critical_section::RestoreState = critical_section::Restor
 static mut ENCODER: defmt::Encoder = defmt::Encoder::new();
 static LOG_RING: critical_section::Mutex<RefCell<DefmtRing<LOG_RING_CAPACITY>>> =
     critical_section::Mutex::new(RefCell::new(DefmtRing::new()));
+static LOG_AVAILABLE_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 #[defmt::global_logger]
 struct TeeLogger;
@@ -51,13 +51,12 @@ pub async fn drain_task() {
     loop {
         let len = take_log_chunk(&mut payload);
         if len == 0 {
-            Timer::after(Duration::from_millis(LOG_POLL_INTERVAL_MS)).await;
+            LOG_AVAILABLE_SIGNAL.wait().await;
             continue;
         }
 
         if let Err(error) = crate::mqtt::queue::publish_defmt_log_chunk(&payload[..len]) {
             rtt_target::rprintln!("defmt MQTT log publish failed: {:?}", error);
-            Timer::after(Duration::from_millis(LOG_POLL_INTERVAL_MS)).await;
         }
     }
 }
@@ -67,9 +66,14 @@ fn take_log_chunk(out: &mut [u8]) -> usize {
 }
 
 fn append_log_bytes(bytes: &[u8]) {
+    let mut wrote_bytes = false;
     critical_section::with(|cs| {
-        let _ = LOG_RING.borrow_ref_mut(cs).push_slice(bytes);
+        wrote_bytes = LOG_RING.borrow_ref_mut(cs).push_slice(bytes) != 0;
     });
+
+    if wrote_bytes {
+        LOG_AVAILABLE_SIGNAL.signal(());
+    }
 }
 
 unsafe impl defmt::Logger for TeeLogger {
