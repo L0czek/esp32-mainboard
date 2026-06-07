@@ -157,6 +157,7 @@ async fn mqtt_connection_loop(
         .map_err(|_| AppMqttError::MqttError)?;
 
     subscribe_to_commands(&mut client).await?;
+    queue::clear_outbound_queue();
     publish_state_on_connect();
     run_session_loop(&mut client, shutdown_signal).await
 }
