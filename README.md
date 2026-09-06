@@ -64,6 +64,17 @@ cargo build --release --bin adc_conversion_test
 
 `build.rs` auto-loads `.env` at compile time for any `env!` config values.
 
+### Known linker workaround (TODO)
+
+Binaries that do not start Wi-Fi (`adc_conversion_test`, `blackbox_uart_counter`, ...) fail to
+link with `symbol not found: __esp_radio_misc_nvs_init` on ESP32-C6. `src/lib.rs` carries two
+stub functions as a temporary workaround. The root cause is fixed upstream in esp-radio 0.18.0
+(esp-rs/esp-hal PR #4513, which drops the `misc_nvs` `EXTERN`/`PROVIDE` lines from
+`esp32c6_provides.x`).
+
+TODO: cherry-pick PR #4513 onto the `rs485-it-rocket` branch of `cytadela8/esp-hal`, run
+`cargo update -p esp-radio`, and delete the stubs from `src/lib.rs`.
+
 ## Flashing / Running
 
 
