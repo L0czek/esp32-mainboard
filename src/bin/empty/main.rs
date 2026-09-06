@@ -26,13 +26,15 @@ extern crate alloc;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
+mainboard::rtt_defmt_logger!();
+
 #[allow(
     clippy::large_stack_frames,
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    rtt_target::rtt_init_defmt!();
+    mainboard::rtt_defmt::init();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);

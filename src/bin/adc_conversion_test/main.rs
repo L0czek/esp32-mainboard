@@ -26,9 +26,11 @@ const BENCHMARK_INTERVAL_MS: u64 = 1_000;
 // This creates the app descriptor required by the esp-idf bootloader.
 esp_bootloader_esp_idf::esp_app_desc!();
 
+mainboard::rtt_defmt_logger!();
+
 #[esp_rtos::main]
 async fn main(_spawner: Spawner) -> ! {
-    rtt_target::rtt_init_defmt!();
+    mainboard::rtt_defmt::init();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);

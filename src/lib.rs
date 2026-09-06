@@ -7,6 +7,7 @@ pub mod defmt_ring;
 pub mod fire_trigger;
 pub mod idle_monitor;
 pub mod power;
+pub mod rtt_defmt;
 pub mod signal_light;
 pub mod tasks;
 pub mod tmp107;
