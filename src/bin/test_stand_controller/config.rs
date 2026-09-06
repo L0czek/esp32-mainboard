@@ -36,7 +36,12 @@ pub const SERVO_CLOSED_DEGREES: u16 = 1800;
 pub const SERVO_FULL_RANGE_MS: u64 = 5000;
 
 /// Number of ADC one-shot reads averaged into one published sensor sample.
-pub const ADC_OVERSAMPLING_SAMPLES: usize = 10;
+///
+/// Each blocking one-shot read costs ~52 us on the ESP32-C6, and the three fast
+/// channels are sampled every millisecond, so every increment adds ~16% CPU load
+/// in a release build. Measured: N=1 47%, N=3 80% busy; N=4 saturates the CPU
+/// and drops MQTT batches. Debug builds have no headroom for oversampling.
+pub const ADC_OVERSAMPLING_SAMPLES: usize = 3;
 
 pub const BLACKBOX_BAUD_RATE: u32 = 3_000_000;
 

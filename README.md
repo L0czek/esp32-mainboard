@@ -127,7 +127,9 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
 - Sensor collection runtime:
   - `sensor_collection_task` reads raw ADC values.
   - Each published ADC sample is the arithmetic mean of
-    `config::ADC_OVERSAMPLING_SAMPLES` one-shot reads (default `2`).
+    `config::ADC_OVERSAMPLING_SAMPLES` one-shot reads (currently `3`). Each read blocks for
+    ~52 us, so at 1 kHz the value is CPU-bound: `3` measures 80% busy in a release build, `4`
+    saturates. Always flash the test stand controller with `--release`.
   - Fast channels (A0/A1/A2) are batched into 100 samples with 1ms spacing per sample.
   - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
 - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485

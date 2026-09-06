@@ -12,8 +12,8 @@ use crate::mqtt::sensors::slow::{SlowAdcChannel, SlowAdcPacket};
 use crate::mqtt::{publish_fast_sensors, publish_slow_sensors, FastSensorsBatch, SlowSensorsBatch};
 use mainboard::board::{A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, BatVolPin, BoostVolPin};
 
-const FAST_BATCH_SAMPLES: usize = 10;
-const FAST_SAMPLE_INTERVAL_MS: u64 = 10;
+const FAST_BATCH_SAMPLES: usize = 100;
+const FAST_SAMPLE_INTERVAL_MS: u64 = 1;
 
 pub struct SensorCollectionIo {
     pub adc: ADC1<'static>,
@@ -89,12 +89,13 @@ impl SensorCollectionState {
     }
 }
 
+const _: () = assert!(
+    ADC_OVERSAMPLING_SAMPLES > 0,
+    "ADC_OVERSAMPLING_SAMPLES must be greater than 0"
+);
+
 #[embassy_executor::task]
 pub async fn sensor_collection_task(io: SensorCollectionIo) {
-    assert!(
-        ADC_OVERSAMPLING_SAMPLES > 0,
-        "ADC_OVERSAMPLING_SAMPLES must be greater than 0"
-    );
     let (mut state, mut blackbox) = SensorCollectionState::new(io);
 
     loop {

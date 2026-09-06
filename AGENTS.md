@@ -101,7 +101,7 @@ Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two 
   `publish_temperature_sensor`, `publish_armed_sensor`).
 - sensor collection task reads raw ADC values for A0/A1/A2 fast channels and A3/A4/BatVol/BoostVol
   slow channels. Each published sample is the arithmetic mean of
-  `ADC_OVERSAMPLING_SAMPLES` one-shot reads (default `2`). It batches fast
+  `ADC_OVERSAMPLING_SAMPLES` one-shot reads (currently `3`). It batches fast
   channels into 100 samples collected at 1ms spacing.
 - binary payload encoding for fast/slow ADC, armed digital stream, temperature streams, and servo sensor.
 - command subscribe/dispatch on `cmd/state`, `cmd/servo`, and `cmd/shutdown` (`SHUTDOWN` payload)
@@ -122,8 +122,11 @@ Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two 
   - Dedicated armed-pin task monitors GPIO21 (D2) edge changes, updates cached armed state, and publishes via MQTT.
   - MQTT client delegates state management to sequencer channel (no inline state).
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
-- Additional compile-time constants in `config.rs` include `ADC_OVERSAMPLING_SAMPLES` (default `2`)
-  for ADC sample averaging before MQTT/blackbox publish.
+- Additional compile-time constants in `config.rs` include `ADC_OVERSAMPLING_SAMPLES` (currently `3`)
+  for ADC sample averaging before MQTT/blackbox publish. Each one-shot read blocks for ~52 us, so
+  the value is bounded by CPU budget: measured 47% busy at `1`, 80% at `3`, saturation at `4`
+  (release build, 1 kHz fast sampling). Flash `test_stand_controller` with `--release` only; a
+  debug build sits at 86% busy already without oversampling.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
 - CPU idle monitoring is implemented for all binaries (`empty`, `www_test`, `railclock`,
