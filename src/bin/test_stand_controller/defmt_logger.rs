@@ -1,47 +1,21 @@
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use mainboard::defmt_ring::DefmtRing;
-use rtt_target::UpChannel;
+use mainboard::rtt_defmt;
 
-const RTT_DEFMT_BUFFER_SIZE: usize = 1024;
-const RTT_PRINT_BUFFER_SIZE: usize = 1024;
 const LOG_RING_CAPACITY: usize = 4096;
 
-static mut RTT_CHANNEL: Option<UpChannel> = None;
-static TAKEN: AtomicBool = AtomicBool::new(false);
-static mut CS_RESTORE: critical_section::RestoreState = critical_section::RestoreState::invalid();
-static mut ENCODER: defmt::Encoder = defmt::Encoder::new();
 static LOG_RING: critical_section::Mutex<RefCell<DefmtRing<LOG_RING_CAPACITY>>> =
     critical_section::Mutex::new(RefCell::new(DefmtRing::new()));
 static LOG_AVAILABLE_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
+/// Tees every `defmt` frame to RTT and to the MQTT log ring.
 #[defmt::global_logger]
 struct TeeLogger;
 
 pub fn init() {
-    use rtt_target::ChannelMode::NoBlockSkip;
-
-    let channels = rtt_target::rtt_init! {
-        up: {
-            0: {
-                size: RTT_DEFMT_BUFFER_SIZE,
-                mode: NoBlockSkip,
-                name: "defmt"
-            }
-            1: {
-                size: RTT_PRINT_BUFFER_SIZE,
-                mode: NoBlockSkip,
-                name: "Terminal"
-            }
-        }
-    };
-
-    rtt_target::set_print_channel(channels.up.1);
-    unsafe {
-        RTT_CHANNEL = Some(channels.up.0);
-    }
+    rtt_defmt::init();
 }
 
 #[embassy_executor::task]
@@ -78,45 +52,21 @@ fn append_log_bytes(bytes: &[u8]) {
 
 unsafe impl defmt::Logger for TeeLogger {
     fn acquire() {
-        let restore = unsafe { critical_section::acquire() };
-
-        if TAKEN.load(Ordering::Relaxed) {
-            panic!("defmt logger taken reentrantly");
-        }
-
-        TAKEN.store(true, Ordering::Relaxed);
-
-        unsafe {
-            CS_RESTORE = restore;
-            let encoder = &mut *core::ptr::addr_of_mut!(ENCODER);
-            encoder.start_frame(do_write);
-        }
+        rtt_defmt::acquire_with(tee_write);
     }
 
     unsafe fn flush() {}
 
     unsafe fn release() {
-        let encoder = &mut *core::ptr::addr_of_mut!(ENCODER);
-        encoder.end_frame(do_write);
-        TAKEN.store(false, Ordering::Relaxed);
-
-        let restore = CS_RESTORE;
-        critical_section::release(restore);
+        rtt_defmt::release_with(tee_write);
     }
 
     unsafe fn write(bytes: &[u8]) {
-        let encoder = &mut *core::ptr::addr_of_mut!(ENCODER);
-        encoder.write(bytes, do_write);
+        rtt_defmt::write_with(bytes, tee_write);
     }
 }
 
-fn do_write(bytes: &[u8]) {
-    unsafe {
-        let channel = core::ptr::addr_of_mut!(RTT_CHANNEL);
-        if let Some(Some(rtt)) = channel.as_mut() {
-            rtt.write(bytes);
-        }
-    }
-
+fn tee_write(bytes: &[u8]) {
+    rtt_defmt::write_rtt(bytes);
     append_log_bytes(bytes);
 }
