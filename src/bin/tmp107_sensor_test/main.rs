@@ -14,6 +14,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::Uart;
 use mainboard::board::Board;
 use mainboard::create_board;
+use mainboard::idle_monitor::{self, IdleWindowTracker};
 use mainboard::tmp107::{Tmp107, Tmp107Error, MAX_SENSORS, ONESHOT_CONVERSION_MS};
 use panic_rtt_target as _;
 
@@ -32,7 +33,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
     reason = "Main owns the temporary sensor buffer and UART setup during startup."
 )]
 #[esp_rtos::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     rtt_target::rtt_init_defmt!();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -43,10 +44,20 @@ async fn main(_spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt =
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
+    esp_rtos::start_with_idle_hook(
+        timg0.timer0,
+        sw_interrupt.software_interrupt0,
+        idle_monitor::idle_hook,
+    );
     info!("Embassy initialized for TMP107 sensor test");
 
+    spawner
+        .spawn(idle_metrics_task())
+        .expect("Failed to spawn idle_metrics_task");
+
     let board = create_board!(peripherals);
+    // Board-specific UART0 wiring for TMP107 SMAART wire:
+    // D0 drives RS485 direction via UART DTR, so the HAL controls TX/RX turn-around.
     let uart = Uart::new(
         peripherals.UART0,
         esp_hal::uart::Config::default().with_baudrate(115200),
@@ -76,8 +87,11 @@ async fn main(_spawner: Spawner) -> ! {
         }
     }
 
-    if let Err(error) = clear_leds(&mut driver).await {
-        warn!("TMP107 clear LEDs failed during startup: {:?}", error);
+    if let Err(error) = clear_alert_gpio_outputs(&mut driver).await {
+        warn!(
+            "TMP107 clear ALERT GPIO outputs failed during startup: {:?}",
+            error
+        );
     }
 
     info!(
@@ -118,11 +132,33 @@ async fn main(_spawner: Spawner) -> ! {
             continue;
         }
 
-        if let Err(error) = blink_led_pattern(&mut driver).await {
-            warn!("TMP107 LED pattern failed: {:?}", error);
+        if let Err(error) = blink_alert_gpio_pattern(&mut driver).await {
+            warn!("TMP107 ALERT GPIO pattern failed: {:?}", error);
         }
 
         Timer::after_millis(LOOP_PAUSE_MS).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn idle_metrics_task() {
+    let mut tracker = IdleWindowTracker::new();
+
+    loop {
+        Timer::after_millis(idle_monitor::DEFAULT_REPORT_INTERVAL_MS).await;
+
+        let sample = tracker.sample_and_reset();
+        let busy_whole = sample.busy_permille / 10;
+        let busy_tenths = sample.busy_permille % 10;
+        let idle_whole = sample.idle_permille / 10;
+        let idle_tenths = sample.idle_permille % 10;
+        let idle_ms = idle_monitor::ticks_to_millis(sample.idle_ticks);
+        let window_ms = idle_monitor::ticks_to_millis(sample.window_ticks);
+
+        info!(
+            "CPU: busy {}.{}%, idle {}.{}% ({} ms idle / {} ms window)",
+            busy_whole, busy_tenths, idle_whole, idle_tenths, idle_ms, window_ms,
+        );
     }
 }
 
@@ -146,37 +182,40 @@ async fn log_temperatures(
     Ok(())
 }
 
-async fn blink_led_pattern(driver: &mut Tmp107) -> Result<(), Tmp107Error> {
-    clear_leds(driver).await?;
+/// Blink ALERT1/ALERT2 as GPIO outputs.
+///
+/// On this test board the ALERT pins are connected to LEDs, so this pattern is visible.
+async fn blink_alert_gpio_pattern(driver: &mut Tmp107) -> Result<(), Tmp107Error> {
+    clear_alert_gpio_outputs(driver).await?;
 
     for address in 1..=driver.sensor_count() {
-        info!("LED pattern: sensor {} ALERT1", address);
-        driver.set_leds(address, true, false).await?;
+        info!("ALERT GPIO pattern: sensor {} ALERT1 high", address);
+        driver.set_gpio_outputs(address, true, false).await?;
         driver.trigger_one_shot().await?;
         Timer::after_millis(LED_STEP_MS).await;
-        driver.set_leds(address, false, false).await?;
+        driver.set_gpio_outputs(address, false, false).await?;
         driver.trigger_one_shot().await?;
     }
 
     for address in (1..=driver.sensor_count()).rev() {
-        info!("LED pattern: sensor {} ALERT2", address);
-        driver.set_leds(address, false, true).await?;
+        info!("ALERT GPIO pattern: sensor {} ALERT2 high", address);
+        driver.set_gpio_outputs(address, false, true).await?;
         driver.trigger_one_shot().await?;
         Timer::after_millis(LED_STEP_MS).await;
-        driver.set_leds(address, false, false).await?;
+        driver.set_gpio_outputs(address, false, false).await?;
         driver.trigger_one_shot().await?;
     }
 
-    info!("LED pattern: address bits");
-    driver.show_address_leds().await?;
+    info!("ALERT GPIO pattern: expose lower address bits");
+    driver.expose_lower_address_bits_on_gpio().await?;
     driver.trigger_one_shot().await?;
     Timer::after_millis(ADDRESS_HOLD_MS).await;
-    clear_leds(driver).await
+    clear_alert_gpio_outputs(driver).await
 }
 
-async fn clear_leds(driver: &mut Tmp107) -> Result<(), Tmp107Error> {
+async fn clear_alert_gpio_outputs(driver: &mut Tmp107) -> Result<(), Tmp107Error> {
     for address in 1..=driver.sensor_count() {
-        driver.set_leds(address, false, false).await?;
+        driver.set_gpio_outputs(address, false, false).await?;
         driver.trigger_one_shot().await?;
     }
 

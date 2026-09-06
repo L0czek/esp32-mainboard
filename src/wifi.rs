@@ -1,7 +1,9 @@
 use core::net::Ipv4Addr;
 
 use defmt::info;
+use embassy_futures::select::{select, Either};
 use embassy_net::{Ipv4Cidr, Runner, StackResources, StaticConfigV4};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, watch};
 use embassy_time::{Duration, Timer};
 use esp_hal::rng::Rng;
 use esp_radio::wifi::{
@@ -15,8 +17,14 @@ use crate::config::{AP_PASSWORD, AP_SSID, WIFI_PASSWORD, WIFI_SSID};
 // Shared resources
 pub static AP_STACK_RESOURCES: StaticCell<StackResources<20>> = StaticCell::new();
 pub static STA_STACK_RESOURCES: StaticCell<StackResources<20>> = StaticCell::new();
+static STA_RSSI_DBM: watch::Watch<CriticalSectionRawMutex, Option<i32>, 4> = watch::Watch::new();
 
 pub type WifiResourceSta = embassy_net::Stack<'static>;
+pub type WifiRssiReceiver = watch::Receiver<'static, CriticalSectionRawMutex, Option<i32>, 4>;
+
+pub fn wifi_rssi_receiver() -> Option<WifiRssiReceiver> {
+    STA_RSSI_DBM.receiver()
+}
 
 /// Initialize WiFi in STA mode
 /// Returns the WiFi resources needed by the server
@@ -137,9 +145,21 @@ async fn connection_task(mut controller: WifiController<'static>) {
             match controller.connect_async().await {
                 Ok(_) => {
                     info!("Connected to {}", WIFI_SSID);
-                    // Wait until we're no longer connected
-                    controller.wait_for_event(WifiEvent::StaDisconnected).await;
-                    info!("STA disconnected");
+                    loop {
+                        match select(
+                            Timer::after(Duration::from_secs(1)),
+                            controller.wait_for_events(WifiEvent::StaDisconnected.into(), false),
+                        )
+                        .await
+                        {
+                            Either::First(()) => publish_sta_rssi(&controller),
+                            Either::Second(_events) => {
+                                STA_RSSI_DBM.sender().send(None);
+                                info!("STA disconnected");
+                                break;
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     info!("Failed to connect to WiFi: {:?}", e);
@@ -149,6 +169,13 @@ async fn connection_task(mut controller: WifiController<'static>) {
         } else {
             return;
         }
+    }
+}
+
+fn publish_sta_rssi(controller: &WifiController<'static>) {
+    match controller.rssi() {
+        Ok(rssi_dbm) => STA_RSSI_DBM.sender().send(Some(rssi_dbm)),
+        Err(error) => defmt::warn!("Failed to read WiFi RSSI: {:?}", error),
     }
 }
 

@@ -4,8 +4,11 @@
 Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107_sensor_test/`.
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
 - `src/bin/adc_conversion_test/main.rs`: standalone ADC benchmark binary (A0 only, 1000 blocking one-shot conversions timed in microseconds).
+- `scripts/publish_test_stand_elf.sh`: helper script to publish the matching
+  `test_stand_controller` ELF as retained MQTT state for DEFMT decoders.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
-- `src/bin/test_stand_controller/wifi.rs`: STA-mode WiFi init and reconnect loop.
+- `src/idle_monitor.rs`: shared ESP RTOS idle hook + CPU utilization window tracker.
+- `src/wifi.rs`: shared WiFi init/reconnect logic and STA RSSI watch updates.
 - `src/bin/test_stand_controller/sensor_collection.rs`: ADC sensor collection task (100-sample fast batch + slow sweep).
 - `src/bin/test_stand_controller/temperature_collection.rs`: TMP107 temperature collection task (20Hz one-shot + shutdown, 20-sample batched MQTT publish).
 - `src/bin/tmp107_sensor_test/main.rs`: standalone TMP107 diagnostic binary (discover chain, one-shot read, log values, blink LED pattern).
@@ -16,13 +19,15 @@ Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107
 - `src/bin/test_stand_controller/mqtt/commands/`: command decoding + handler traits + mock handlers.
 - `src/bin/test_stand_controller/mqtt/commands/shutdown.rs`: `SHUTDOWN` command decoder.
 - `src/bin/test_stand_controller/mqtt/topics.rs`: topic constants and topic-format helpers.
-- `src/bin/test_stand_controller/sequencer.rs`: state sequencer task (ARMED/FIRE/POSTFIRE state machine, signal light control, safety switch monitoring).
+- `src/bin/test_stand_controller/sequencer.rs`: state sequencer and armed-pin tasks (ARMED/FIRE/POSTFIRE state machine, fire trigger timing, signal light control, safety switch monitoring).
 - `src/bin/test_stand_controller/servo.rs`: servo controller task (MCPWM PWM, command channel, linear interpolation).
 - `src/bin/test_stand_controller/blackbox.rs`: UART1 blackbox data logger — streams sensor data to external recording device.
 - `src/bin/test_stand_controller/config.rs`: compile-time env configuration (WiFi, MQTT, servo positions, blackbox baud rate).
 - `src/tasks/` and `src/power/`: shared power-controller and interrupt handling used by this binary.
 - `src/signal_light.rs`: PCF8574-based signalling light tower driver (active-low, 5 LEDs + buzzer).
-- `src/tmp107.rs`: TMP107 daisy-chain temperature sensor driver (SMAART wire protocol over half-duplex UART).
+- `src/tmp107/mod.rs`: TMP107 daisy-chain temperature sensor driver public API + UART protocol flow.
+- `src/tmp107/registers.rs`: TMP107 register enum + configuration-register bitfield definition.
+- `src/tmp107/commands.rs`: TMP107 command enum + command-byte encoding.
 
 ## Host Tools
 
@@ -47,6 +52,29 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
 **Lint:** `make check` (clippy) and `make fmt` (rustfmt)
 **Decode:** `RUSTFLAGS="" cargo run -- decode [--separator <hex>] <path>`
 **Format:** `RUSTFLAGS="" cargo run -- format [--yes] <device-or-file>`
+
+### `tools/defmt-mqtt-decoder/` — Defmt MQTT Decoder
+Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two modes:
+- **CLI mode:** subscribes to MQTT `defmt` bytes and prints decoded log lines using the matching
+  ELF.
+- **WASM mode:** exposes a thin `wasm-bindgen` API for frontend code that already has MQTT payload
+  bytes and wants decoded log lines without speaking MQTT directly.
+
+**Files:**
+- `src/decoder.rs`: transport-agnostic incremental decoder core. Accepts raw MQTT payload bytes
+  and returns completed log lines plus recoverable warnings.
+- `src/mqtt.rs`: host-only MQTT subscribe loop and payload forwarding.
+- `src/main.rs`: CLI entry point that wires MQTT subscription into the shared decoder core.
+- `src/wasm.rs`: WASM-facing `DefmtDecoder` wrapper for frontend integration.
+- `example-web/`: tiny static website showing how browser JavaScript imports the generated WASM
+  package and feeds raw MQTT payload bytes into the decoder.
+- `tests/stream_decode.rs`: host-side MQTT event forwarding tests.
+- `tests/defmt_ring.rs`: shared byte-ring regression tests for the firmware log transport.
+
+**Build CLI:** `cd tools/defmt-mqtt-decoder && RUSTFLAGS="" cargo run -- --elf <firmware.elf> ...`
+**Test/Lint:** `RUSTFLAGS="" cargo test && RUSTFLAGS="" cargo clippy --all-targets -- -D warnings`
+**Build WASM:** `RUSTFLAGS="" cargo build --target wasm32-unknown-unknown --release --lib`
+**Browser demo:** `RUSTFLAGS="" wasm-pack build --target web --out-dir example-web/pkg && cd example-web && python3 -m http.server 8080`
 
 ## Build, Test, and Development Commands
 - `cargo check --bin test_stand_controller`: fast compile check with auto-loaded compile-time env.
@@ -90,14 +118,29 @@ Standalone Rust crate (x86, stable toolchain) with two subcommands:
   - Receives `StateCommand` (Fire/FireEnd/FireReset) from MQTT handler via `Channel<CriticalSectionRawMutex, StateCommand, 4>`.
   - FIRE transition requires safety switch to be armed (GPIO21 high); rejected otherwise.
   - Signal light (PCF8574 at 0x21): green=ARMED, buzzer+red→red=FIRE, green+red=POSTFIRE.
-  - Buzzer runs for 3 seconds on FIRE entry via non-blocking timer in the select loop.
-  - Monitors armed switch (GPIO21 D2) edge changes and publishes via MQTT.
+  - Owns the fire trigger (PCF8574 at 0x20) and a 3-second non-blocking FIRE buzzer timer before trigger activation.
+  - Dedicated armed-pin task monitors GPIO21 (D2) edge changes, updates cached armed state, and publishes via MQTT.
   - MQTT client delegates state management to sequencer channel (no inline state).
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - Additional compile-time constants in `config.rs` include `ADC_OVERSAMPLING_SAMPLES` (default `2`)
   for ADC sample averaging before MQTT/blackbox publish.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
+- CPU idle monitoring is implemented for all binaries (`empty`, `www_test`, `railclock`,
+  `test_stand_controller`, `tmp107_sensor_test`, `blackbox_uart_counter`):
+  - each binary starts RTOS with `esp_rtos::start_with_idle_hook(..., idle_monitor::idle_hook)`.
+  - idle hook accumulates scheduler-idle (`WFI`) time using SYSTIMER unit0 ticks.
+  - each binary has an `idle_metrics_task` that logs busy/idle percentages every 5 seconds.
+- `test_stand_controller` publishes the latest idle metric via MQTT:
+  - topic: `metric/cpu/idle` (retained).
+  - payload format: raw little-endian `u16` idle permille (`0..=1000`).
+- `test_stand_controller` publishes the latest STA RSSI metric via MQTT:
+  - topic: `metric/wifi/rssi` (retained).
+  - payload format: raw little-endian `i32` RSSI in dBm.
+- The matching controller ELF can be published for browser-side DEFMT decoding with:
+  `scripts/publish_test_stand_elf.sh`
+  - default topic: `shared/firmware/test_stand_controller/elf`
+  - payload: raw ELF bytes, retained
 - TMP107 temperature sensor chain: auto-discovery at boot via Address Initialize,
   one-shot + shutdown mode at 20Hz (50ms interval) for best accuracy per datasheet.
   Each cycle: global one-shot trigger → 20ms conversion wait → global read.

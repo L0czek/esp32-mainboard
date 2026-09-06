@@ -1,15 +1,23 @@
+use defmt::warn;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, TrySendError};
 
 use crate::mqtt::sensors::digital::ArmedPacket;
 use crate::mqtt::sensors::fast::{FastAdcChannel, FastAdcPacket};
 use crate::mqtt::sensors::slow::{ServoSensorPacket, SlowAdcChannel, SlowAdcPacket};
-use crate::mqtt::sensors::status::{CommandStatusPacket, ServoStatus, StateStatus};
+use crate::mqtt::sensors::status::{
+    CommandStatusPacket, CpuIdleMetricPacket, StateStatus, WifiRssiMetricPacket,
+};
 use crate::mqtt::sensors::temp::TempPacket;
+use crate::servo::state::ServoStatus;
 
 pub const OUTBOUND_QUEUE_CAPACITY: usize = 256;
+pub const DEFMT_LOG_CHUNK_SIZE: usize = 128;
+pub const DEFMT_LOG_QUEUE_CAPACITY: usize = 32;
 
 static OUTBOUND_QUEUE: Channel<CriticalSectionRawMutex, OutboundMessage, OUTBOUND_QUEUE_CAPACITY> =
+    Channel::new();
+static DEFMT_LOG_QUEUE: Channel<CriticalSectionRawMutex, DefmtLogChunk, DEFMT_LOG_QUEUE_CAPACITY> =
     Channel::new();
 
 #[derive(Debug, Clone)]
@@ -22,11 +30,56 @@ pub enum OutboundMessage {
     StateStatus(StateStatus),
     ServoStatus(ServoStatus),
     CommandStatus(CommandStatusPacket),
+    CpuIdleMetric(CpuIdleMetricPacket),
+    WifiRssiMetric(WifiRssiMetricPacket),
+}
+
+impl OutboundMessage {
+    fn variant_name(&self) -> &'static str {
+        match self {
+            Self::FastAdc(_) => "FastAdc",
+            Self::SlowAdc(_) => "SlowAdc",
+            Self::Armed(_) => "Armed",
+            Self::Temp(_) => "Temp",
+            Self::ServoSensor(_) => "ServoSensor",
+            Self::StateStatus(_) => "StateStatus",
+            Self::ServoStatus(_) => "ServoStatus",
+            Self::CommandStatus(_) => "CommandStatus",
+            Self::CpuIdleMetric(_) => "CpuIdleMetric",
+            Self::WifiRssiMetric(_) => "WifiRssiMetric",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
 pub enum PublishError {
     QueueFull,
+    PayloadTooLarge,
+}
+
+#[derive(Debug, Clone)]
+pub struct DefmtLogChunk {
+    len: usize,
+    bytes: [u8; DEFMT_LOG_CHUNK_SIZE],
+}
+
+impl DefmtLogChunk {
+    fn from_slice(bytes: &[u8]) -> Result<Self, PublishError> {
+        if bytes.len() > DEFMT_LOG_CHUNK_SIZE {
+            return Err(PublishError::PayloadTooLarge);
+        }
+
+        let mut chunk = Self {
+            len: bytes.len(),
+            bytes: [0; DEFMT_LOG_CHUNK_SIZE],
+        };
+        chunk.bytes[..bytes.len()].copy_from_slice(bytes);
+        Ok(chunk)
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -114,33 +167,54 @@ pub fn publish_slow_sensors(batch: SlowSensorsBatch) -> Result<(), PublishError>
     Ok(())
 }
 
-pub fn publish_temperature_sensor(packet: TempPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::Temp(packet))
+pub fn publish_temperature_sensor(packet: TempPacket) {
+    enqueue_or_log(OutboundMessage::Temp(packet))
 }
 
-pub fn publish_armed_sensor(packet: ArmedPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::Armed(packet))
+pub fn publish_armed_sensor(packet: ArmedPacket) {
+    enqueue_or_log(OutboundMessage::Armed(packet))
 }
 
-pub fn publish_state_status(status: StateStatus) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::StateStatus(status))
+pub fn publish_state_status(status: StateStatus) {
+    enqueue_or_log(OutboundMessage::StateStatus(status))
 }
 
-pub fn publish_servo_status(status: ServoStatus) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::ServoStatus(status))
+pub fn publish_servo_status(status: ServoStatus) {
+    enqueue_or_log(OutboundMessage::ServoStatus(status))
 }
 
-pub fn publish_servo_sensor(packet: ServoSensorPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::ServoSensor(packet))
+pub fn publish_servo_sensor(packet: ServoSensorPacket) {
+    enqueue_or_log(OutboundMessage::ServoSensor(packet))
 }
 
-pub fn publish_command_status(status: CommandStatusPacket) -> Result<(), PublishError> {
-    enqueue(OutboundMessage::CommandStatus(status))
+pub fn publish_command_status(status: CommandStatusPacket) {
+    enqueue_or_log(OutboundMessage::CommandStatus(status))
+}
+
+pub fn publish_cpu_idle_metric(idle_permille: u16) -> Result<(), PublishError> {
+    enqueue(OutboundMessage::CpuIdleMetric(
+        CpuIdleMetricPacket::from_idle_permille(idle_permille),
+    ))
+}
+
+pub fn publish_wifi_rssi_metric(rssi_dbm: i32) -> Result<(), PublishError> {
+    enqueue(OutboundMessage::WifiRssiMetric(
+        WifiRssiMetricPacket::from_dbm(rssi_dbm),
+    ))
+}
+
+pub fn publish_defmt_log_chunk(bytes: &[u8]) -> Result<(), PublishError> {
+    let chunk = DefmtLogChunk::from_slice(bytes)?;
+    match DEFMT_LOG_QUEUE.try_send(chunk) {
+        Ok(()) => Ok(()),
+        Err(TrySendError::Full(_)) => Err(PublishError::QueueFull),
+    }
 }
 
 pub fn publish_command_log(msg: &str) {
-    if let Ok(packet) = CommandStatusPacket::from_str(msg) {
-        let _ = publish_command_status(packet);
+    match CommandStatusPacket::from_str(msg) {
+        Ok(packet) => publish_command_status(packet),
+        Err(err) => defmt::error!("Error {} while encoding log {}", err, msg),
     }
 }
 
@@ -148,13 +222,31 @@ pub(crate) async fn receive_outbound_message() -> OutboundMessage {
     OUTBOUND_QUEUE.receive().await
 }
 
+pub(crate) async fn receive_defmt_log_chunk() -> DefmtLogChunk {
+    DEFMT_LOG_QUEUE.receive().await
+}
+
 pub(crate) fn clear_outbound_queue() {
     OUTBOUND_QUEUE.clear();
+    DEFMT_LOG_QUEUE.clear();
 }
 
 fn enqueue(message: OutboundMessage) -> Result<(), PublishError> {
     match OUTBOUND_QUEUE.try_send(message) {
         Ok(()) => Ok(()),
         Err(TrySendError::Full(_)) => Err(PublishError::QueueFull),
+    }
+}
+
+fn enqueue_or_log(message: OutboundMessage) {
+    let variant = message.variant_name(); // this is cheap, because we are only getting the reference
+    match enqueue(message) {
+        Ok(()) => (), //OK
+        Err(PublishError::QueueFull) => {
+            warn!("Failed to publish {}: queue full", variant);
+        }
+        Err(PublishError::PayloadTooLarge) => {
+            warn!("Failed to publish {}: payload too large", variant);
+        }
     }
 }

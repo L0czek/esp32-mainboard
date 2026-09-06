@@ -1,4 +1,3 @@
-#![feature(impl_trait_in_assoc_type)]
 #![no_std]
 #![no_main]
 #![deny(
@@ -10,6 +9,7 @@
 mod blackbox;
 mod camera_shutter;
 mod config;
+mod defmt_logger;
 mod mqtt;
 mod sensor_collection;
 mod sequencer;
@@ -18,15 +18,17 @@ mod temperature_collection;
 
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
+use mainboard::idle_monitor::{self, IdleWindowTracker};
 use mainboard::power::PowerControllerIO;
 use mainboard::tasks::{
     spawn_ext_interrupt_task, spawn_power_controller, PowerResponse, PowerStateReceiver,
 };
-use mainboard::wifi::{initialize_wifi_sta, WifiResourceSta};
+use mainboard::wifi::{initialize_wifi_sta, wifi_rssi_receiver, WifiResourceSta};
 
-use defmt::info;
+use defmt::{info, warn};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_time::Timer;
 use esp_hal::clock::CpuClock;
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::timer::timg::TimerGroup;
@@ -49,8 +51,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
-    // Initialize RTT for logging
-    rtt_target::rtt_init_defmt!();
+    defmt_logger::init();
 
     // Configure and initialize hardware
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -65,7 +66,11 @@ async fn main(spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt =
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
+    esp_rtos::start_with_idle_hook(
+        timg0.timer0,
+        sw_interrupt.software_interrupt0,
+        idle_monitor::idle_hook,
+    );
     info!("Embassy initialized!");
 
     let board = create_board!(peripherals);
@@ -129,6 +134,15 @@ async fn main(spawner: Spawner) {
         .spawn(mqtt::mqtt_task(wifi_resources, &SHUTDOWN_SIGNAL))
         .expect("Failed to spawn mqtt_task");
     info!("MQTT task spawned");
+    spawner
+        .spawn(defmt_logger::drain_task())
+        .expect("Failed to spawn defmt_logger::drain_task");
+    info!("Defmt MQTT drain task spawned");
+
+    spawner
+        .spawn(wifi_rssi_metric_task())
+        .expect("Failed to spawn wifi_rssi_metric_task");
+    info!("WiFi RSSI metric task spawned");
 
     spawner
         .spawn(sensor_collection::sensor_collection_task(
@@ -172,12 +186,20 @@ async fn main(spawner: Spawner) {
     let signal_light_i2c = acquire_i2c_bus();
     let fire_trigger_i2c = acquire_i2c_bus();
     spawner
-        .spawn(sequencer::fire_sequencer_task(fire_trigger_i2c))
-        .expect("Failed to spawn fire_sequencer_task");
+        .spawn(sequencer::armed_pin_task(armed_pin))
+        .expect("Failed to spawn armed_pin_task");
     spawner
-        .spawn(sequencer::state_sequencer_task(armed_pin, signal_light_i2c))
+        .spawn(sequencer::state_sequencer_task(
+            signal_light_i2c,
+            fire_trigger_i2c,
+        ))
         .expect("Failed to spawn state_sequencer_task");
-    info!("State sequencer task spawned");
+    info!("Sequencer tasks spawned");
+
+    spawner
+        .spawn(idle_metrics_task())
+        .expect("Failed to spawn idle_metrics_task");
+    info!("Idle monitor task spawned");
 
     SHUTDOWN_SIGNAL.wait().await;
     info!("Shutdown signal received");
@@ -204,5 +226,45 @@ async fn log_power_state_changes_task(mut receiver: PowerStateReceiver) {
     loop {
         let stats = receiver.changed().await.clone();
         stats.dump();
+    }
+}
+
+#[embassy_executor::task]
+async fn idle_metrics_task() {
+    let mut tracker = IdleWindowTracker::new();
+
+    loop {
+        Timer::after_millis(idle_monitor::DEFAULT_REPORT_INTERVAL_MS).await;
+
+        let sample = tracker.sample_and_reset();
+        let idle_ms = idle_monitor::ticks_to_millis(sample.idle_ticks);
+        let window_ms = idle_monitor::ticks_to_millis(sample.window_ticks);
+
+        if let Err(error) = mqtt::queue::publish_cpu_idle_metric(sample.idle_permille) {
+            warn!("CPU idle metric publish failed: {:?}", error);
+        }
+
+        info!(
+            "CPU: busy {}‰, idle {}‰ ({} ms idle / {} ms window)",
+            sample.busy_permille, sample.idle_permille, idle_ms, window_ms,
+        );
+    }
+}
+
+#[embassy_executor::task]
+async fn wifi_rssi_metric_task() {
+    let Some(mut receiver) = wifi_rssi_receiver() else {
+        warn!("Failed to create WiFi RSSI receiver");
+        return;
+    };
+
+    loop {
+        let Some(rssi_dbm) = receiver.changed().await else {
+            continue;
+        };
+
+        if let Err(error) = mqtt::queue::publish_wifi_rssi_metric(rssi_dbm) {
+            warn!("WiFi RSSI metric publish failed: {:?}", error);
+        }
     }
 }

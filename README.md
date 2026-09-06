@@ -9,15 +9,24 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 - `scripts/` — helper scripts for common local workflows.
 - `src/` — library and binary sources:
   - `board.rs` — board-specific wiring and helper functions.
+  - `defmt_ring.rs` — shared fixed-capacity byte ring used by the test-stand `defmt` MQTT log path.
   - `power/` — power controller driver and helpers.
   - `tasks/` — async tasks used by binaries (ADC, UART, digital IO, etc.).
+  - `idle_monitor.rs` — shared CPU idle/busy monitoring hook + sampling helpers for ESP RTOS.
+  - `tmp107/` — TMP107 UART daisy-chain driver split into protocol commands/registers and driver logic.
   - `bin/` — firmware entrypoints:
     - `www_test/` — web server + diagnostic target (primary example).
     - `empty/` — minimal/empty binary.
     - `test_stand_controller/` — test stand firmware (power, WiFi, MQTT command + sensor pipeline).
+      - `defmt_logger.rs` — binary-local `defmt` tee logger that writes encoded frames to RTT and
+        into an MQTT-drained byte ring.
     - `tmp107_sensor_test/` — standalone TMP107 chain test (discover, read, log, LED blink loop).
     - `blackbox_uart_counter/` — UART1 (D4 TX) counter generator for blackbox receiver debugging.
     - `adc_conversion_test/` — one-pin ADC conversion benchmark (1000 `read_oneshot` calls timed in microseconds).
+- `tools/` — host-side utilities:
+  - `blackbox-decoder/` — SD card decoder/formatter for the UART blackbox stream.
+  - `defmt-mqtt-decoder/` — reusable `defmt` stream decoder crate with a host MQTT CLI, a
+    WASM-facing frontend API, and a minimal browser example under `example-web/`.
 
 ## What this repo provides
 
@@ -123,6 +132,86 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
 - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
   direction control via D0 wired to UART DTR.
+- `test_stand_controller` also exports encoded `defmt` log bytes over MQTT:
+  - topic: `log/defmt`
+  - payload: raw encoded `defmt` stream bytes
+  - transport: same encoded bytes are tee'd to RTT and to MQTT
+- Publish the matching ELF for browser-based decoders with:
+```sh
+scripts/publish_test_stand_elf.sh
+```
+- The script publishes the ELF as retained raw bytes on
+  `shared/firmware/test_stand_controller/elf`
+- Override the defaults with `TEST_STAND_ELF`, `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER`,
+  `MQTT_PASSWORD`, or `MQTT_TOPIC`
+
+### Decoding `defmt` MQTT Logs
+
+The decoder lives in `tools/defmt-mqtt-decoder/` and now supports two consumption modes:
+
+- a host CLI that subscribes to MQTT and prints decoded logs
+- a WASM-facing library API for frontend code that already has the MQTT payload bytes
+
+Both modes require the same ELF that produced the running firmware image.
+
+For browser/frontends that decode `log/defmt` directly, publish that same ELF into MQTT first:
+
+```sh
+MQTT_HOST=broker.local scripts/publish_test_stand_elf.sh
+```
+
+Run it from the tool directory so its local Cargo target override applies:
+
+```sh
+cd tools/defmt-mqtt-decoder
+env RUSTFLAGS='' cargo run -- \
+  --elf /path/to/target/riscv32imac-unknown-none-elf/debug/test_stand_controller \
+  --host broker.local \
+  --port 1883 \
+  --username "$MQTT_USER" \
+  --password "$MQTT_PASSWORD" \
+  --topic log/defmt
+```
+
+The decoder also reads broker credentials from `MQTT_USER` and `MQTT_PASSWORD` if you omit the
+flags.
+
+The decoder fails fast if the ELF does not match the incoming `defmt` stream metadata.
+
+#### Frontend / WASM Usage
+
+The same crate also exposes a thin `wasm-bindgen` API for frontend code:
+
+- `DefmtDecoder::new(elfBytes)` creates a decoder from firmware ELF bytes
+- `decodeChunk(mqttPayloadBytes)` feeds one raw MQTT payload and returns completed log lines
+
+Build the library artifact from the tool directory:
+
+```sh
+cd tools/defmt-mqtt-decoder
+RUSTFLAGS='' cargo build --target wasm32-unknown-unknown --release --lib
+```
+
+This produces a WebAssembly-ready library artifact while reusing the same Rust `defmt-decoder`
+core as the CLI tool. For a minimal browser integration example, see
+`tools/defmt-mqtt-decoder/example-web/README.md`.
+
+## CPU Idle Monitoring
+
+- All current binaries (`empty`, `www_test`, `railclock`, `test_stand_controller`,
+  `tmp107_sensor_test`, `blackbox_uart_counter`) start `esp_rtos` with
+  `start_with_idle_hook(...)` and `mainboard::idle_monitor::idle_hook`.
+- The idle hook records time spent blocked in `WFI` (idle scheduler state) using the ESP32-C6
+  system timer.
+- Each binary runs a periodic async task that logs CPU busy/idle percentages and idle/window
+  milliseconds every 5 seconds.
+- `test_stand_controller` also publishes a retained MQTT metric with the latest idle value:
+  - topic: `metric/cpu/idle`
+  - payload: raw little-endian `u16` idle permille (`0..=1000`)
+- `test_stand_controller` also samples STA RSSI once per second while connected and publishes a
+  retained MQTT metric:
+  - topic: `metric/wifi/rssi`
+  - payload: raw little-endian `i32` RSSI in dBm
 
 ## Blackbox Stream (`test_stand_controller`)
 

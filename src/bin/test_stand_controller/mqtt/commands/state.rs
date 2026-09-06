@@ -1,32 +1,27 @@
+use crate::mqtt::commands::{trim_ascii, Command};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum StateCommand {
     Fire,
+    Abort,
+    /// triggered automatically when safety button transitions to safe state
+    SafetySafe,
     FireEnd,
     FireReset,
+    LampTest,
+    CameraTest,
 }
 
-impl StateCommand {
-    pub fn decode(payload: &[u8]) -> Option<Self> {
+impl Command for StateCommand {
+    fn try_decode(payload: &[u8]) -> Option<Self> {
         match trim_ascii(payload) {
             b"FIRE" => Some(Self::Fire),
+            b"ABORT" => Some(Self::Abort),
             b"FIRE_END" => Some(Self::FireEnd),
             b"FIRE_RESET" => Some(Self::FireReset),
+            b"LAMP_TEST" => Some(Self::LampTest),
+            b"CAMERA_TEST" => Some(Self::CameraTest),
             _ => None,
         }
     }
-}
-
-fn trim_ascii(input: &[u8]) -> &[u8] {
-    let start = input
-        .iter()
-        .position(|value| !value.is_ascii_whitespace())
-        .unwrap_or(input.len());
-
-    let end = input
-        .iter()
-        .rposition(|value| !value.is_ascii_whitespace())
-        .map(|index| index + 1)
-        .unwrap_or(start);
-
-    &input[start..end]
 }

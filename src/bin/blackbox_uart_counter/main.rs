@@ -14,6 +14,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::UartTx;
 use mainboard::board::Board;
 use mainboard::create_board;
+use mainboard::idle_monitor::{self, IdleWindowTracker};
 use panic_rtt_target as _;
 
 const BLACKBOX_BAUD_RATE: u32 = 3_000_000;
@@ -24,7 +25,7 @@ const SEND_INTERVAL_MS: u64 = 1;
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     rtt_target::rtt_init_defmt!();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -35,8 +36,16 @@ async fn main(_spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt =
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
+    esp_rtos::start_with_idle_hook(
+        timg0.timer0,
+        sw_interrupt.software_interrupt0,
+        idle_monitor::idle_hook,
+    );
     info!("Embassy initialized for blackbox UART counter");
+
+    spawner
+        .spawn(idle_metrics_task())
+        .expect("Failed to spawn idle_metrics_task");
 
     let board = create_board!(peripherals);
 
@@ -66,5 +75,27 @@ fn write_all(tx: &mut UartTx<'static, esp_hal::Blocking>, buf: &[u8]) {
 
         let written = tx.write(remaining).expect("UART1 write failed");
         remaining = &remaining[written..];
+    }
+}
+
+#[embassy_executor::task]
+async fn idle_metrics_task() {
+    let mut tracker = IdleWindowTracker::new();
+
+    loop {
+        Timer::after_millis(idle_monitor::DEFAULT_REPORT_INTERVAL_MS).await;
+
+        let sample = tracker.sample_and_reset();
+        let busy_whole = sample.busy_permille / 10;
+        let busy_tenths = sample.busy_permille % 10;
+        let idle_whole = sample.idle_permille / 10;
+        let idle_tenths = sample.idle_permille % 10;
+        let idle_ms = idle_monitor::ticks_to_millis(sample.idle_ticks);
+        let window_ms = idle_monitor::ticks_to_millis(sample.window_ticks);
+
+        info!(
+            "CPU: busy {}.{}%, idle {}.{}% ({} ms idle / {} ms window)",
+            busy_whole, busy_tenths, idle_whole, idle_tenths, idle_ms, window_ms,
+        );
     }
 }
