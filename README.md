@@ -22,7 +22,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
         into an MQTT-drained byte ring.
     - `tmp107_sensor_test/` — standalone TMP107 chain test (discover, read, log, LED blink loop).
     - `blackbox_uart_counter/` — UART1 (D4 TX) counter generator for blackbox receiver debugging.
-    - `adc_conversion_test/` — one-pin ADC conversion benchmark (1000 `read_oneshot` calls timed in microseconds).
+    - `adc_conversion_test/` — one-pin ADC conversion benchmark (1000 blocking and 1000 async `read_oneshot` calls timed in microseconds).
 - `tools/` — host-side utilities:
   - `blackbox-decoder/` — SD card decoder/formatter for the UART blackbox stream.
   - `defmt-mqtt-decoder/` — reusable `defmt` stream decoder crate with a host MQTT CLI, a
@@ -255,8 +255,12 @@ cargo run --bin tmp107_sensor_test
 ## ADC Conversion Benchmark
 
 - `adc_conversion_test` mirrors the blocking ADC path used by `test_stand_controller/sensor_collection.rs`.
-- It enables only `A0` with `AdcCalBasic`, performs 1000 one-shot conversions, and logs total elapsed
-  microseconds plus average nanoseconds per conversion.
+- It enables only `A0` with `AdcCalBasic`, performs 1000 blocking one-shot conversions followed by
+  1000 async ones, and logs for each pass the total elapsed microseconds, average nanoseconds per
+  conversion, and the min/max/last raw values.
+- Measured on ESP32-C6 (CPU max clock): blocking ≈ 52 µs/conversion in release, ≈ 54 µs in dev
+  (esp-hal spins 40 µs per conversion as a hardware workaround); async ≈ 68 µs wall time but does
+  not busy-wait.
 - It repeats once per second so you can observe timing stability across runs.
 - Run with:
 

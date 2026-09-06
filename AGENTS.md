@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107_sensor_test/`.
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
-- `src/bin/adc_conversion_test/main.rs`: standalone ADC benchmark binary (A0 only, 1000 blocking one-shot conversions timed in microseconds).
+- `src/bin/adc_conversion_test/main.rs`: standalone ADC benchmark binary (A0 only, 1000 blocking and 1000 async one-shot conversions timed in microseconds, with raw min/max).
 - `scripts/publish_test_stand_elf.sh`: helper script to publish the matching
   `test_stand_controller` ELF as retained MQTT state for DEFMT decoders.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
