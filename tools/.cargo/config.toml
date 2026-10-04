@@ -1,0 +1,8 @@
+# Tools in this directory run on the build host. Overrides the build target from main repo dir
+[build]
+target = "host-tuple"
+
+# Cargo merges this with the firmware's ["alloc", "core"]. Rebuild std too
+# so host tools do not mix rebuilt core with the toolchain's prebuilt std.
+[unstable]
+build-std = ["std"]

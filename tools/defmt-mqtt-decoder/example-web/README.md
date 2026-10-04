@@ -23,7 +23,7 @@ Run these commands from the decoder crate:
 
 ```sh
 cd tools/defmt-mqtt-decoder
-RUSTFLAGS='' wasm-pack build --target web --out-dir example-web/pkg
+wasm-pack build --target web --out-dir example-web/pkg
 ```
 
 That command does two things:
@@ -65,7 +65,7 @@ If you want to work with the raw `wasm32` target artifacts instead of `wasm-pack
 
 ```sh
 cd tools/defmt-mqtt-decoder
-RUSTFLAGS='' cargo build --target wasm32-unknown-unknown --release --lib
+cargo build --target wasm32-unknown-unknown --release --lib
 wasm-bindgen \
   --target web \
   --out-dir example-web/pkg \
