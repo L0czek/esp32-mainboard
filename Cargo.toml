@@ -9,7 +9,7 @@ name = "empty"
 path = "./src/bin/empty/main.rs"
 
 [[bin]]
-name = "www_test"
+name = "www-test"
 path = "./src/bin/www_test/main.rs"
 
 [[bin]]
@@ -17,15 +17,15 @@ name = "railclock"
 path = "./src/bin/railclock/main.rs"
 
 [[bin]]
-name = "test_stand_controller"
+name = "test-stand-controller"
 path = "./src/bin/test_stand_controller/main.rs"
 
 [[bin]]
-name = "tmp107_sensor_test"
+name = "tmp107-sensor-test"
 path = "./src/bin/tmp107_sensor_test/main.rs"
 
 [[bin]]
-name = "blackbox_uart_counter"
+name = "blackbox-uart-counter"
 path = "./src/bin/blackbox_uart_counter/main.rs"
 
 [dependencies]

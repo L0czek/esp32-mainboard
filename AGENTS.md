@@ -4,7 +4,7 @@
 Current work scope includes `src/bin/test_stand_controller/` and `src/bin/tmp107_sensor_test/`.
 - `scripts/send_shutdown_mqtt.sh`: helper script to publish MQTT shutdown command.
 - `scripts/publish_test_stand_elf.sh`: helper script to publish the matching
-  `test_stand_controller` ELF as retained MQTT state for DEFMT decoders.
+  `test-stand-controller` ELF as retained MQTT state for DEFMT decoders.
 - `src/bin/test_stand_controller/main.rs`: boot path, task wiring, power + WiFi + MQTT startup.
 - `src/idle_monitor.rs`: shared ESP RTOS idle hook + CPU utilization window tracker.
 - `src/wifi.rs`: shared WiFi init/reconnect logic and STA RSSI watch updates.
@@ -76,17 +76,17 @@ Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two 
 **Browser demo:** `RUSTFLAGS="" wasm-pack build --target web --out-dir example-web/pkg && cd example-web && python3 -m http.server 8080`
 
 ## Build, Test, and Development Commands
-- `cargo check --bin test_stand_controller`: fast compile check with auto-loaded compile-time env.
-- `cargo build --release --bin test_stand_controller`: optimized firmware build with auto-loaded compile-time env.
+- `cargo check --bin test-stand-controller`: fast compile check with auto-loaded compile-time env.
+- `cargo build --release --bin test-stand-controller`: optimized firmware build with auto-loaded compile-time env.
 - `cargo fmt --all`: format code.
-- `cargo clippy --bin test_stand_controller -- -D warnings`: lint this binary strictly.
-- `cargo check --bin tmp107_sensor_test`: fast compile check for the standalone TMP107 test target.
-- `cargo clippy --bin tmp107_sensor_test -- -D warnings`: lint the standalone TMP107 test target strictly.
-- `cargo check --bin blackbox_uart_counter`: fast compile check for UART blackbox receiver debug target.
-- `cargo espflash --release --bin test_stand_controller /dev/ttyUSB0`: flash device (update serial path).
-- `cargo run --bin test_stand_controller`: probe-run style flash/run flow when configured.
-- `cargo run --bin tmp107_sensor_test`: flash/run the standalone TMP107 diagnostic loop when configured.
-- `cargo run --bin blackbox_uart_counter`: flash/run UART blackbox counter stream for receiver debug.
+- `cargo clippy --bin test-stand-controller -- -D warnings`: lint this binary strictly.
+- `cargo check --bin tmp107-sensor-test`: fast compile check for the standalone TMP107 test target.
+- `cargo clippy --bin tmp107-sensor-test -- -D warnings`: lint the standalone TMP107 test target strictly.
+- `cargo check --bin blackbox-uart-counter`: fast compile check for UART blackbox receiver debug target.
+- `cargo espflash --release --bin test-stand-controller /dev/ttyUSB0`: flash device (update serial path).
+- `cargo run --bin test-stand-controller`: probe-run style flash/run flow when configured.
+- `cargo run --bin tmp107-sensor-test`: flash/run the standalone TMP107 diagnostic loop when configured.
+- `cargo run --bin blackbox-uart-counter`: flash/run UART blackbox counter stream for receiver debug.
 
 ## Current Implementation Status (test_stand_controller)
 - Boot sequence is implemented: RTT logging, Embassy runtime startup, heap allocation, board pin mapping, shared I2C bus init.
@@ -119,15 +119,15 @@ Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two 
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
 - `build.rs` auto-loads `.env` and forwards values as `cargo:rustc-env`; explicit shell env values override `.env`.
 - `main.rs` now exits its runtime wait loop on a shutdown signal and executes shipping mode + deep sleep.
-- CPU idle monitoring is implemented for all binaries (`empty`, `www_test`, `railclock`,
-  `test_stand_controller`, `tmp107_sensor_test`, `blackbox_uart_counter`):
+- CPU idle monitoring is implemented for all binaries (`empty`, `www-test`, `railclock`,
+  `test-stand-controller`, `tmp107-sensor-test`, `blackbox-uart-counter`):
   - each binary starts RTOS with `esp_rtos::start_with_idle_hook(..., idle_monitor::idle_hook)`.
   - idle hook accumulates scheduler-idle (`WFI`) time using SYSTIMER unit0 ticks.
   - each binary has an `idle_metrics_task` that logs busy/idle percentages every 5 seconds.
-- `test_stand_controller` publishes the latest idle metric via MQTT:
+- `test-stand-controller` publishes the latest idle metric via MQTT:
   - topic: `metric/cpu/idle` (retained).
   - payload format: raw little-endian `u16` idle permille (`0..=1000`).
-- `test_stand_controller` publishes the latest STA RSSI metric via MQTT:
+- `test-stand-controller` publishes the latest STA RSSI metric via MQTT:
   - topic: `metric/wifi/rssi` (retained).
   - payload format: raw little-endian `i32` RSSI in dBm.
 - The matching controller ELF can be published for browser-side DEFMT decoding with:
@@ -142,7 +142,7 @@ Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two 
   `TEMP_COLLECTION_INTERVAL_MS` (50), `TEMP_BATCH_SIZE` (20), `ONESHOT_CONVERSION_MS` (20).
   Connected via UART0 (GPIO16 TX, GPIO17 RX) with D0 (GPIO23) as half-duplex
   transceiver direction, driven by UART DTR in hardware RS485 mode.
-- `tmp107_sensor_test` provides a standalone hardware test for that same UART0 TMP107 chain:
+- `tmp107-sensor-test` provides a standalone hardware test for that same UART0 TMP107 chain:
   one-shot conversion, per-sensor temperature logging, a walking ALERT1/ALERT2 blink pattern,
   address-bit LED display, then repeat.
 - Blackbox UART data logger streams all sensor data over UART1 TX (D4) to
@@ -172,7 +172,7 @@ Use `rustfmt` defaults (4-space indentation, standard brace style). Follow idiom
 Keep control flow explicit in hardware paths; avoid hidden side effects.
 
 ## Testing Guidelines
-Host-side tests are minimal. For each change run `cargo check --bin test_stand_controller`, `cargo clippy`, and on-device smoke checks (boot, WiFi join, MQTT connect, subscribe/publish round-trip).
+Host-side tests are minimal. For each change run `cargo check --bin test-stand-controller`, `cargo clippy`, and on-device smoke checks (boot, WiFi join, MQTT connect, subscribe/publish round-trip).
 
 ## Commit & Pull Request Guidelines
 Recent history favors short imperative subjects (`Fix ...`, `Refactor ...`, `Add ...`). Keep commits single-purpose and readable. Avoid `WIP` commits in PRs.

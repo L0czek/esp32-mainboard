@@ -83,7 +83,7 @@ Host-side automated verification covers:
 
 Firmware-side automated verification covers:
 
-- `cargo check --bin test_stand_controller`
-- `cargo clippy --bin test_stand_controller -- -D warnings`
+- `cargo check --bin test-stand-controller`
+- `cargo clippy --bin test-stand-controller -- -D warnings`
 
 Live RTT + MQTT + decoder end-to-end verification still requires hardware and a running broker.

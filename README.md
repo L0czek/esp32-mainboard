@@ -4,7 +4,7 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 
 ## Repository layout
 
-- `Cargo.toml` — crate manifest and binaries (`www_test`, `empty`, `test_stand_controller`, `tmp107_sensor_test`, `blackbox_uart_counter`).
+- `Cargo.toml` — crate manifest and binaries (`www-test`, `empty`, `test-stand-controller`, `tmp107-sensor-test`, `blackbox-uart-counter`).
 - `rust-toolchain.toml` — pinned Rust toolchain for the project.
 - `scripts/` — helper scripts for common local workflows.
 - `src/` — library and binary sources:
@@ -29,14 +29,14 @@ Firmware for the Railclock mainboard (ESP32C6-based). This repository contains a
 
 ## What this repo provides
 
-This repository provides board support code for the Railclock mainboard — including power-controller drivers, GPIO mappings, and I²C helpers — together with an example firmware, `www_test`, which runs a small web UI to control GPIOs, interact with I²C and UART devices, and query/control the power controller (battery, 12V boost, charger). The crate also supplies low-level drivers and an async task layout built on Embassy to simplify integrating board features into firmware targets.
+This repository provides board support code for the Railclock mainboard — including power-controller drivers, GPIO mappings, and I²C helpers — together with an example firmware, `www-test`, which runs a small web UI to control GPIOs, interact with I²C and UART devices, and query/control the power controller (battery, 12V boost, charger). The crate also supplies low-level drivers and an async task layout built on Embassy to simplify integrating board features into firmware targets.
 
 ## Build
 
-Build the `www_test` binary (example):
+Build the `www-test` binary (example):
 
 ```sh
-cargo build --release --bin www_test
+cargo build --release --bin www-test
 ```
 
 To build the minimal `empty` binary:
@@ -45,23 +45,23 @@ To build the minimal `empty` binary:
 cargo build --release --bin empty
 ```
 
-To build the `test_stand_controller` binary:
+To build the `test-stand-controller` binary:
 
 ```sh
 cp .env.example .env
-cargo build --release --bin test_stand_controller
+cargo build --release --bin test-stand-controller
 ```
 
 To build the TMP107 sensor test binary:
 
 ```sh
-cargo build --release --bin tmp107_sensor_test
+cargo build --release --bin tmp107-sensor-test
 ```
 
 To build the blackbox UART counter debug binary:
 
 ```sh
-cargo build --release --bin blackbox_uart_counter
+cargo build --release --bin blackbox-uart-counter
 ```
 
 `build.rs` auto-loads `.env` at compile time for any `env!` config values.
@@ -73,7 +73,7 @@ Example using `cargo-espflash` (replace `/dev/ttyUSB0` with your serial device):
 
 ```sh
 cargo install cargo-espflash         # if not installed
-cargo espflash --release --bin www_test /dev/ttyUSB0
+cargo espflash --release --bin www-test /dev/ttyUSB0
 ```
 
 `cargo espflash` will flash and typically open the serial monitor. Alternatively use `espflash`, `esptool.py`, or your preferred flashing tool.
@@ -83,12 +83,12 @@ Using probe-rs / `probe-run` (common workflow):
 If you use probe-rs / `probe-run` to flash via a debug probe you can build, flash and run the target directly with `cargo run` (this matches your workflow):
 
 ```sh
-cargo run --bin www_test            # or add --release for an optimized build
+cargo run --bin www-test            # or add --release for an optimized build
 ```
 
-After the device boots, the `www_test` firmware runs a small web server and prints network/diagnostic info to the serial console (watch the serial log to discover the device IP or status messages).
+After the device boots, the `www-test` firmware runs a small web server and prints network/diagnostic info to the serial console (watch the serial log to discover the device IP or status messages).
 
-## MQTT in `test_stand_controller`
+## MQTT in `test-stand-controller`
 
 - MQTT code is split under `src/bin/test_stand_controller/mqtt/`:
   - `client.rs` — connection/session loop with `select` over inbound MQTT events and outbound queue.
@@ -112,7 +112,7 @@ MQTT_HOST=broker.local MQTT_PORT=1883 scripts/send_shutdown_mqtt.sh
   - Slow channels (A3/A4/BatVol/BoostVol) are read once per cycle and enqueued without batching.
 - `temperature_collection_task` polls the TMP107 UART chain on UART0, using hardware RS485
   direction control via D0 wired to UART DTR.
-- `test_stand_controller` also exports encoded `defmt` log bytes over MQTT:
+- `test-stand-controller` also exports encoded `defmt` log bytes over MQTT:
   - topic: `log/defmt`
   - payload: raw encoded `defmt` stream bytes
   - transport: same encoded bytes are tee'd to RTT and to MQTT
@@ -145,7 +145,7 @@ Run it from the tool directory so its local Cargo target override applies:
 ```sh
 cd tools/defmt-mqtt-decoder
 env RUSTFLAGS='' cargo run -- \
-  --elf /path/to/target/riscv32imac-unknown-none-elf/debug/test_stand_controller \
+  --elf /path/to/target/riscv32imac-unknown-none-elf/debug/test-stand-controller \
   --host broker.local \
   --port 1883 \
   --username "$MQTT_USER" \
@@ -178,22 +178,22 @@ core as the CLI tool. For a minimal browser integration example, see
 
 ## CPU Idle Monitoring
 
-- All current binaries (`empty`, `www_test`, `railclock`, `test_stand_controller`,
-  `tmp107_sensor_test`, `blackbox_uart_counter`) start `esp_rtos` with
+- All current binaries (`empty`, `www-test`, `railclock`, `test-stand-controller`,
+  `tmp107-sensor-test`, `blackbox-uart-counter`) start `esp_rtos` with
   `start_with_idle_hook(...)` and `mainboard::idle_monitor::idle_hook`.
 - The idle hook records time spent blocked in `WFI` (idle scheduler state) using the ESP32-C6
   system timer.
 - Each binary runs a periodic async task that logs CPU busy/idle percentages and idle/window
   milliseconds every 5 seconds.
-- `test_stand_controller` also publishes a retained MQTT metric with the latest idle value:
+- `test-stand-controller` also publishes a retained MQTT metric with the latest idle value:
   - topic: `metric/cpu/idle`
   - payload: raw little-endian `u16` idle permille (`0..=1000`)
-- `test_stand_controller` also samples STA RSSI once per second while connected and publishes a
+- `test-stand-controller` also samples STA RSSI once per second while connected and publishes a
   retained MQTT metric:
   - topic: `metric/wifi/rssi`
   - payload: raw little-endian `i32` RSSI in dBm
 
-## Blackbox Stream (`test_stand_controller`)
+## Blackbox Stream (`test-stand-controller`)
 
 - UART1 blackbox output uses compact binary packets (`ID + payload`) for offline capture.
 - Packet timestamps are centralized in a dedicated Timing Sync packet (`0x06`) that is emitted
@@ -207,19 +207,19 @@ core as the CLI tool. For a minimal browser integration example, see
 
 ### UART Receiver Debug Target
 
-- `blackbox_uart_counter` transmits incrementing `u32` values (little-endian) over
+- `blackbox-uart-counter` transmits incrementing `u32` values (little-endian) over
   the same blackbox interface: UART1 TX on `D4` at `3_000_000` baud.
 - Use it to validate external UART receiver wiring and framing without the rest
   of the test stand pipeline.
 - Run with:
 
 ```sh
-cargo run --bin blackbox_uart_counter
+cargo run --bin blackbox-uart-counter
 ```
 
 ## TMP107 Sensor Test
 
-- `tmp107_sensor_test` is a dedicated diagnostic binary for the TMP107 daisy chain on UART0.
+- `tmp107-sensor-test` is a dedicated diagnostic binary for the TMP107 daisy chain on UART0.
 - On each cycle it:
   - triggers a one-shot conversion,
   - reads and logs every discovered sensor temperature,
@@ -229,12 +229,12 @@ cargo run --bin blackbox_uart_counter
 - Build or run it with:
 
 ```sh
-cargo run --bin tmp107_sensor_test
+cargo run --bin tmp107-sensor-test
 ```
 
-## Using `www_test`
+## Using `www-test`
 
-- The `www_test` target exposes a tiny web UI that lets you:
+- The `www-test` target exposes a tiny web UI that lets you:
   - Toggle and read GPIOs
   - Interact with I²C devices (scan/read/write)
   - Send/receive raw UART data
