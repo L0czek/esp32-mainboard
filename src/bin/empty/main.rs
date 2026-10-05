@@ -20,6 +20,8 @@ use esp_hal::timer::timg::TimerGroup;
 use mainboard::power::PowerControllerIO;
 use panic_rtt_target as _;
 
+mainboard::declared_required_envs!();
+
 extern crate alloc;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.

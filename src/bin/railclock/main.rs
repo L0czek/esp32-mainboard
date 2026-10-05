@@ -15,6 +15,8 @@ mod mqtt_queue;
 mod ntp;
 mod rtc;
 
+mainboard::declared_required_envs!("WIFI_SSID", "WIFI_PASSWORD", "MQTT_HOST");
+
 use alloc::format;
 use defmt::{error, info};
 use embassy_executor::Spawner;

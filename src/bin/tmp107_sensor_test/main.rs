@@ -18,6 +18,8 @@ use mainboard::idle_monitor::{self, IdleWindowTracker};
 use mainboard::tmp107::{Tmp107, Tmp107Error, MAX_SENSORS, ONESHOT_CONVERSION_MS};
 use panic_rtt_target as _;
 
+mainboard::declared_required_envs!();
+
 extern crate alloc;
 
 const LED_STEP_MS: u64 = 150;

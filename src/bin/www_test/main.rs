@@ -13,6 +13,8 @@ mod digital_io;
 mod server;
 mod uart;
 
+mainboard::declared_required_envs!("WIFI_SSID", "WIFI_PASSWORD");
+
 use esp_hal::analog::adc::AdcConfig;
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;

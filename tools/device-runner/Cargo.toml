@@ -1,0 +1,9 @@
+[package]
+name = "device-runner"
+version = "0.1.0"
+edition = "2024"
+description = "flashes esp32c6 device performing all relevant logic and checking if build was compiled for flashing"
+
+[dependencies]
+anyhow = "1"
+object = "0.40"

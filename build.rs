@@ -1,6 +1,10 @@
 fn main() {
     linker_be_nice();
     load_dotenv();
+    println!("cargo:rustc-check-cfg=cfg(release_build)");
+    if std::env::var("PROFILE").as_deref() == Ok("release") {
+        println!("cargo:rustc-cfg=release_build");
+    }
     println!("cargo:rustc-link-arg=-Tdefmt.x");
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");

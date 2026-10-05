@@ -2,7 +2,10 @@
 //                    MQTT
 // =============================================
 
-pub static MQTT_HOST: &str = env!("MQTT_HOST");
+pub static MQTT_HOST: &str = match option_env!("MQTT_HOST") {
+    Some(host) => host,
+    None => "mqtt",
+};
 pub const MQTT_PORT: u16 = 1883;
 pub static MQTT_USER: Option<&str> = option_env!("MQTT_USER");
 pub static MQTT_PASSWORD: Option<&str> = option_env!("MQTT_PASSWORD");

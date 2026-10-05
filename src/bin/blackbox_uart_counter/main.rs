@@ -17,6 +17,8 @@ use mainboard::create_board;
 use mainboard::idle_monitor::{self, IdleWindowTracker};
 use panic_rtt_target as _;
 
+mainboard::declared_required_envs!();
+
 const BLACKBOX_BAUD_RATE: u32 = 3_000_000;
 const SEND_INTERVAL_MS: u64 = 1;
 

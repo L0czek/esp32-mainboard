@@ -16,6 +16,8 @@ mod sequencer;
 mod servo;
 mod temperature_collection;
 
+mainboard::declared_required_envs!("WIFI_SSID", "WIFI_PASSWORD", "MQTT_HOST");
+
 use mainboard::board::{acquire_i2c_bus, init_i2c_bus, Board};
 use mainboard::create_board;
 use mainboard::idle_monitor::{self, IdleWindowTracker};
