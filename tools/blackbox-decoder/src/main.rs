@@ -92,6 +92,12 @@ fn cmd_decode(input: &PathBuf, separator: u8) -> Result<()> {
             Err(DecodeError::MissingTimeSync { packet_type }) => {
                 eprintln!("warning: dropping {packet_type} packet before first timing sync");
             }
+            Err(DecodeError::SkippedBeforeTimeSync { offset, count }) => {
+                eprintln!(
+                    "warning: skipped {count} bytes between session start and the \
+                     first timing sync at offset {offset}"
+                );
+            }
             Err(DecodeError::UnknownPacketId { id, offset }) => {
                 eprintln!("warning: unknown packet id {id:#04x} at offset {offset}, skipping");
             }

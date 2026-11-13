@@ -26,6 +26,11 @@ pub enum DecodeError {
     MissingTimeSync {
         packet_type: &'static str,
     },
+    /// Bytes between a session separator and the first timing sync were discarded.
+    SkippedBeforeTimeSync {
+        offset: u64,
+        count: u64,
+    },
 }
 
 impl core::fmt::Display for DecodeError {
@@ -46,6 +51,12 @@ impl core::fmt::Display for DecodeError {
             DecodeError::MissingTimeSync { packet_type } => {
                 write!(f, "{packet_type} before timing_sync: missing timing sync")
             }
+            DecodeError::SkippedBeforeTimeSync { offset, count } => {
+                write!(
+                    f,
+                    "skipped {count} bytes before the timing sync at offset {offset}"
+                )
+            }
         }
     }
 }
@@ -55,7 +66,9 @@ impl std::error::Error for DecodeError {
         match self {
             DecodeError::Io { source, .. } => Some(source),
             DecodeError::TruncatedPayload { source, .. } => Some(source),
-            DecodeError::UnknownPacketId { .. } | DecodeError::MissingTimeSync { .. } => None,
+            DecodeError::UnknownPacketId { .. }
+            | DecodeError::MissingTimeSync { .. }
+            | DecodeError::SkippedBeforeTimeSync { .. } => None,
         }
     }
 }
@@ -72,6 +85,10 @@ const TIMING_SYNC_SIGNATURE: [u8; 8] = [
 ];
 const WINDOW_SIZE: usize = TIMING_SYNC_SIGNATURE.len();
 
+/// The blackbox starts every session with one whole sector holding the separator byte
+/// followed by zeros. Sectors are counted from the start of the input.
+const SECTOR_SIZE: usize = 512;
+
 pub struct PacketDecoder<R: Read> {
     reader: R,
     offset: u64,
@@ -81,6 +98,20 @@ pub struct PacketDecoder<R: Read> {
     fast_packets_since_timing_sync: u32,
     window: VecDeque<u8>,
     end_of_stream: bool,
+    sector: [u8; SECTOR_SIZE],
+    sector_len: usize,
+    sector_pos: usize,
+    input_exhausted: bool,
+    /// Stream bytes handed to the window so far; separator sectors are not counted.
+    fetched: u64,
+    /// Stream bytes taken out of the window so far.
+    consumed: u64,
+    /// Positions, in stream bytes, in front of which a separator sector was found.
+    separator_positions: VecDeque<u64>,
+    /// Set after a separator sector: the session starts mid-stream, so everything up to
+    /// the first timing sync is discarded.
+    awaiting_timing_sync: bool,
+    skipped_before_timing_sync: u64,
 }
 
 impl<R: Read> PacketDecoder<R> {
@@ -94,11 +125,50 @@ impl<R: Read> PacketDecoder<R> {
             fast_packets_since_timing_sync: 0,
             window: VecDeque::with_capacity(WINDOW_SIZE),
             end_of_stream: false,
+            sector: [0; SECTOR_SIZE],
+            sector_len: 0,
+            sector_pos: 0,
+            input_exhausted: false,
+            fetched: 0,
+            consumed: 0,
+            separator_positions: VecDeque::new(),
+            awaiting_timing_sync: false,
+            skipped_before_timing_sync: 0,
         }
     }
 
     pub fn next_packet(&mut self) -> Result<Option<PacketData>> {
         loop {
+            self.refill_read_buffer()?;
+            if self.at_separator_sector() {
+                self.separator_positions.pop_front();
+                self.offset += SECTOR_SIZE as u64;
+                self.awaiting_timing_sync = true;
+                self.skipped_before_timing_sync = 0;
+                self.simulated_time_ms = None;
+                self.fast_interval_ms = None;
+                return Ok(Some(PacketData::ExperimentSeparator {}));
+            }
+
+            if self.awaiting_timing_sync {
+                if !self.read_buffer_matches_timing_sync_signature() {
+                    match self.try_read_byte_raw()? {
+                        // Leading padding is not data; zeros inside the data are.
+                        Some(ID_PADDING) if self.skipped_before_timing_sync == 0 => {}
+                        Some(_) => self.skipped_before_timing_sync += 1,
+                        None => return Ok(None),
+                    }
+                    continue;
+                }
+                self.awaiting_timing_sync = false;
+                if self.skipped_before_timing_sync > 0 {
+                    return Err(DecodeError::SkippedBeforeTimeSync {
+                        offset: self.offset,
+                        count: std::mem::take(&mut self.skipped_before_timing_sync),
+                    });
+                }
+            }
+
             let Some(id) = self.try_read_byte_raw()? else {
                 return Ok(None);
             };
@@ -125,16 +195,62 @@ impl<R: Read> PacketDecoder<R> {
         }
     }
 
-    fn read_byte_from_input_stream(&mut self) -> Result<Option<u8>> {
-        let mut buf = [0u8; 1];
-        match self.reader.read(&mut buf) {
-            Ok(0) => Ok(None),
-            Ok(_) => Ok(Some(buf[0])),
-            Err(source) => Err(DecodeError::Io {
-                op: "reading input stream",
-                source,
-            }),
+    // Reads the next sector of the input into the sector buffer. A read error is reported
+    // once whatever was read before it has been handed out.
+    fn load_sector(&mut self) -> Result<()> {
+        self.sector_len = 0;
+        self.sector_pos = 0;
+        while self.sector_len < SECTOR_SIZE {
+            match self.reader.read(&mut self.sector[self.sector_len..]) {
+                Ok(0) => {
+                    self.input_exhausted = true;
+                    break;
+                }
+                Ok(n) => self.sector_len += n,
+                Err(source) if source.kind() == ErrorKind::Interrupted => {}
+                Err(source) => {
+                    return Err(DecodeError::Io {
+                        op: "reading input stream",
+                        source,
+                    });
+                }
+            }
         }
+        Ok(())
+    }
+
+    fn sector_is_separator(&self) -> bool {
+        self.sector_len == SECTOR_SIZE
+            && self.sector[0] == self.separator_byte
+            && self.sector[1..].iter().all(|&byte| byte == 0)
+    }
+
+    // Separator sectors are not part of the byte stream: they are left out here and
+    // remembered by position, so they are recognised even in the middle of a packet.
+    fn read_byte_from_input_stream(&mut self) -> Result<Option<u8>> {
+        loop {
+            if self.sector_pos < self.sector_len {
+                let byte = self.sector[self.sector_pos];
+                self.sector_pos += 1;
+                self.fetched += 1;
+                return Ok(Some(byte));
+            }
+            if self.input_exhausted {
+                return Ok(None);
+            }
+
+            self.load_sector()?;
+            if self.sector_is_separator() {
+                self.separator_positions.push_back(self.fetched);
+                self.sector_len = 0;
+            }
+        }
+    }
+
+    // True when the next byte of the stream comes right after a separator sector.
+    // Only valid after refill_read_buffer().
+    fn at_separator_sector(&self) -> bool {
+        self.separator_positions.front() == Some(&self.consumed)
     }
 
     fn refill_read_buffer(&mut self) -> Result<()> {
@@ -160,6 +276,7 @@ impl<R: Read> PacketDecoder<R> {
             return Ok(None);
         };
         self.offset += 1;
+        self.consumed += 1;
 
         if !self.end_of_stream {
             match self.read_byte_from_input_stream()? {
@@ -174,6 +291,17 @@ impl<R: Read> PacketDecoder<R> {
     // Reads one byte from the sliding read buffer.
     // Returns Ok(None) when the underlying stream reached EOF.
     fn try_read_byte(&mut self) -> Result<Option<u8>> {
+        self.refill_read_buffer()?;
+        if self.at_separator_sector() {
+            return Err(DecodeError::TruncatedPayload {
+                offset: self.offset,
+                needed: 1,
+                source: std::io::Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "session separator sector inside packet",
+                ),
+            });
+        }
         if self.read_buffer_matches_timing_sync_signature() {
             return Err(DecodeError::TruncatedPayload {
                 offset: self.offset,
@@ -333,7 +461,7 @@ mod tests {
 
     use crate::packet::{ID_DIGITAL, ID_FAST_ADC, ID_SLOW_ADC, ID_TEMPERATURE, PacketData};
 
-    use super::{DecodeError, PacketDecoder, TIMING_SYNC_SIGNATURE};
+    use super::{DecodeError, PacketDecoder, SECTOR_SIZE, TIMING_SYNC_SIGNATURE};
 
     fn push_u16_le(buf: &mut Vec<u8>, value: u16) {
         buf.extend_from_slice(&value.to_le_bytes());
@@ -526,5 +654,108 @@ mod tests {
 
         let end = decoder.next_packet().expect("decode eof");
         assert!(end.is_none());
+    }
+
+    fn push_fast_adc(buf: &mut Vec<u8>, tensometer: u16) {
+        buf.push(ID_FAST_ADC);
+        push_u16_le(buf, tensometer);
+        push_u16_le(buf, 22);
+        push_u16_le(buf, 33);
+    }
+
+    fn push_separator_sector(buf: &mut Vec<u8>) {
+        assert_eq!(buf.len() % SECTOR_SIZE, 0);
+        buf.push(0xAA);
+        buf.resize(buf.len() + SECTOR_SIZE - 1, 0);
+    }
+
+    #[test]
+    fn separator_sector_after_truncated_packet_starts_a_new_session() {
+        let mut bytes = Vec::new();
+        push_separator_sector(&mut bytes);
+
+        // First session: fills one sector exactly and ends in the middle of a packet.
+        push_timing_sync(&mut bytes, 1_000, 1);
+        while bytes.len() + 7 <= 2 * SECTOR_SIZE {
+            push_fast_adc(&mut bytes, 11);
+        }
+        let partial = 2 * SECTOR_SIZE - bytes.len();
+        assert!((1..5).contains(&partial));
+        bytes.push(ID_FAST_ADC);
+        bytes.resize(2 * SECTOR_SIZE, 0x07);
+
+        // Second session: joins the stream mid-packet, with a stray byte first.
+        push_separator_sector(&mut bytes);
+        bytes.push(ID_FAST_ADC);
+        push_fast_adc(&mut bytes, 55);
+        push_timing_sync(&mut bytes, 5_000, 1);
+        push_fast_adc(&mut bytes, 66);
+
+        let mut decoder = PacketDecoder::new(Cursor::new(bytes), 0xAA);
+
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::ExperimentSeparator {}))
+        ));
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::TimingSync { timestamp_ms: 1_000, .. }))
+        ));
+        loop {
+            match decoder.next_packet() {
+                Ok(Some(PacketData::FastAdc { tensometer: 11, .. })) => {}
+                Err(DecodeError::TruncatedPayload { offset, .. }) => {
+                    assert_eq!(offset, 2 * SECTOR_SIZE as u64);
+                    break;
+                }
+                other => panic!("unexpected packet in first session: {:?}", other),
+            }
+        }
+
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::ExperimentSeparator {}))
+        ));
+        match decoder.next_packet() {
+            Err(DecodeError::SkippedBeforeTimeSync { offset, count }) => {
+                assert_eq!(offset, 3 * SECTOR_SIZE as u64 + 8);
+                assert_eq!(count, 8);
+            }
+            other => panic!("expected SkippedBeforeTimeSync, got {:?}", other),
+        }
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::TimingSync { timestamp_ms: 5_000, .. }))
+        ));
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::FastAdc { timestamp_ms: 5_000, tensometer: 66, .. }))
+        ));
+        assert!(matches!(decoder.next_packet(), Ok(None)));
+    }
+
+    #[test]
+    fn separator_sector_at_end_of_input_is_reported() {
+        let mut bytes = Vec::new();
+        push_separator_sector(&mut bytes);
+        push_timing_sync(&mut bytes, 1_000, 1);
+        bytes.resize(2 * SECTOR_SIZE, 0);
+        push_separator_sector(&mut bytes);
+
+        let mut decoder = PacketDecoder::new(Cursor::new(bytes), 0xAA);
+
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::ExperimentSeparator {}))
+        ));
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::TimingSync { timestamp_ms: 1_000, .. }))
+        ));
+        assert!(matches!(
+            decoder.next_packet(),
+            Ok(Some(PacketData::ExperimentSeparator {}))
+        ));
+        assert!(matches!(decoder.next_packet(), Ok(None)));
     }
 }
