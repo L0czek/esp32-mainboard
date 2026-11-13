@@ -46,3 +46,6 @@ pub const BLACKBOX_BAUD_RATE: u32 = 3_000_000;
 
 pub const FIRE_TRIGGER_BYTE: u8 = 0x11;
 pub const FIRE_COUNTDOWN_DURATION_MS: u64 = 10_000;
+/// How long the igniter trigger stays asserted after entering FIRE. The state stays FIRE
+/// after that, until END FIRE.
+pub const FIRE_TRIGGER_PULSE_MS: u64 = 3_000;

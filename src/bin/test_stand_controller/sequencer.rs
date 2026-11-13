@@ -11,7 +11,7 @@ use mainboard::fire_trigger::FireTrigger;
 use mainboard::signal_light::{SignalLight, SignalLightConfig};
 
 use crate::camera_shutter::{self, CameraShutterCommand};
-use crate::config::{FIRE_COUNTDOWN_DURATION_MS, FIRE_TRIGGER_BYTE};
+use crate::config::{FIRE_COUNTDOWN_DURATION_MS, FIRE_TRIGGER_BYTE, FIRE_TRIGGER_PULSE_MS};
 use crate::mqtt::commands::state::StateCommand;
 use crate::mqtt::queue;
 use crate::mqtt::sensors::digital::ArmedPacket;
@@ -110,6 +110,8 @@ struct Sequencer {
     state: StateStatus,
     light: SignalLight<I2cType>,
     fire_trigger: FireTrigger<I2cType>,
+    /// End of the igniter pulse. Set only while the trigger is asserted.
+    trigger_release_at: Option<Instant>,
 }
 
 impl Sequencer {
@@ -148,6 +150,7 @@ impl Sequencer {
             state,
             light,
             fire_trigger,
+            trigger_release_at: None,
         })
     }
 
@@ -215,8 +218,11 @@ impl Sequencer {
                 if let Err(_e) = self.fire_trigger.trigger() {
                     warn!("Failed to activate fire trigger");
                 }
+                self.trigger_release_at =
+                    Some(Instant::now() + Duration::from_millis(FIRE_TRIGGER_PULSE_MS));
             }
             StateStatus::PostFire => {
+                self.trigger_release_at = None;
                 if let Err(_e) = self.fire_trigger.safe() {
                     warn!("Failed to reset fire trigger");
                 }
@@ -230,6 +236,19 @@ impl Sequencer {
             );
         }
     }
+
+    /// Ends the igniter pulse. The state stays FIRE, so the camera keeps recording until
+    /// END FIRE, but arming the safety switch again can no longer fire the igniter.
+    fn release_trigger(&mut self) {
+        self.trigger_release_at = None;
+        if let Err(_e) = self.fire_trigger.safe() {
+            warn!("Failed to reset fire trigger");
+            queue::publish_command_log("Failed to release fire trigger");
+            return;
+        }
+        info!("Fire trigger released");
+        queue::publish_command_log("Fire trigger released");
+    }
 }
 
 #[embassy_executor::task]
@@ -241,10 +260,22 @@ pub async fn state_sequencer_task(signal_light_i2c: I2cType, fire_trigger_i2c: I
 
     loop {
         match sequencer.state {
-            StateStatus::Armed | StateStatus::Fire | StateStatus::PostFire => {
+            StateStatus::Armed | StateStatus::PostFire => {
                 let command = SEQUENCER_CHANNEL.receive().await;
                 handle_command(command, &mut sequencer);
             }
+            StateStatus::Fire => match sequencer.trigger_release_at {
+                Some(release_at) => {
+                    match select(SEQUENCER_CHANNEL.receive(), Timer::at(release_at)).await {
+                        Either::First(command) => handle_command(command, &mut sequencer),
+                        Either::Second(()) => sequencer.release_trigger(),
+                    }
+                }
+                None => {
+                    let command = SEQUENCER_CHANNEL.receive().await;
+                    handle_command(command, &mut sequencer);
+                }
+            },
             StateStatus::Countdown { end } => {
                 match select(SEQUENCER_CHANNEL.receive(), Timer::at(end)).await {
                     Either::First(command) => {

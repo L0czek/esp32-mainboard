@@ -113,7 +113,8 @@ Standalone Rust crate (host + WASM-oriented) that reuses `defmt-decoder` in two 
   - Receives `StateCommand` (Fire/FireEnd/FireReset) from MQTT handler via `Channel<CriticalSectionRawMutex, StateCommand, 4>`.
   - FIRE transition requires safety switch to be armed (GPIO21 high); rejected otherwise.
   - Signal light (PCF8574 at 0x21): green=ARMED, buzzer+red→red=FIRE, green+red=POSTFIRE.
-  - Owns the fire trigger (PCF8574 at 0x20) and a 3-second non-blocking FIRE buzzer timer before trigger activation.
+  - Owns the fire trigger (PCF8574 at 0x20). The trigger is asserted on entering FIRE and released after `FIRE_TRIGGER_PULSE_MS` (3 s); the state stays FIRE until `FireEnd`.
+  - The safety switch going to safe aborts COUNTDOWN but is deliberately ignored in FIRE, so the camera keeps recording.
   - Dedicated armed-pin task monitors GPIO21 (D2) edge changes, updates cached armed state, and publishes via MQTT.
   - MQTT client delegates state management to sequencer channel (no inline state).
 - Config is compile-time via env vars: required `WIFI_SSID`, `WIFI_PASSWORD`, `MQTT_HOST`; optional `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`.
